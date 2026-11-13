@@ -12,7 +12,7 @@
 
 ```bash
 pip install bpy==5.2.4 numpy PySide6
-python3 dev/bench.py 1500            # 回归基线：faces 1498 / quads 1219 / Hausdorff≈0.86% / 翻转 0 / UV 岛 99/99
+python3 dev/bench.py 1500            # 回归基线（Mac arm64）：faces 1499 / quads 1204 / Hausdorff≈0.99% / 翻转 0 / UV 岛 99/99
 python3 runner.py -- --in testdata/jier_high.fbx --out /tmp/o.fbx --faces 1500 --mode character --renders /tmp/r
 python3 evaluate.py testdata/jier_high.fbx /tmp/o.fbx --texture testdata/jier_diffuse.png --regions testdata/jier_regions.json
 QT_QPA_PLATFORM=offscreen python3 app/main.py --selftest --blender python3 --in testdata/jier_high.fbx --outdir /tmp/st

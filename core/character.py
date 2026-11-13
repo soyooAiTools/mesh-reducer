@@ -49,6 +49,13 @@ class Params:
         self.max_warp = 35.0           # quads may not become more twisted than this (degrees; relaxed when stuck)
         self.max_rel_error = 0.3       # hard limit on measured error / feature size (relaxed only when stuck)
         self.max_feature = 0.035       # error is judged relative to min(local thickness, this * bbox diagonal)
+        self.profile_protect = True    # silhouette / profile protection: a quad of the original that lies between a
+                                       # concave and a convex crease is a step riser (heel block front, ledge).  Edges
+                                       # that cross such a step are judged against the step height instead of the
+                                       # (much larger) part thickness, so the step is not flattened into a ramp
+        self.crease_angle = 60.0       # dihedral angle (degrees) from which an original edge counts as a crease
+        self.profile_min = 0.008       # risers narrower than this * bbox diagonal are bevels, not steps: ignored.
+                                       # (0.003 also keeps strap bands etc.; costs ~60 faces on Jier, see HANDOFF)
         self.uv_weight = 1.0           # weight of texture sliding vs geometric error
         self.partial = True            # allow partial ring collapses when stuck
         self.max_tri_ratio = None      # max fraction of triangles (None -> original)
@@ -122,6 +129,9 @@ class Reducer:
         diam, score = joints.analyse(self)
         on_tube = ~np.isnan(diam)
         self.thick[on_tube] = np.clip(diam[on_tube], self.diag * 0.004, self.diag * self.p.max_feature)
+        self.eprofile = {}
+        if params.profile_protect:
+            self.eprofile = self._init_relief()
         if params.auto_joints:
             self.ejoint = {k: v * params.joint_strength for k, v in score.items()}
         from collections import Counter
@@ -260,6 +270,70 @@ class Reducer:
                     t2[v] = 0.5 * thick[v] + 0.5 * float(np.median([thick[x] for x in nb[v]]))
             thick = t2
         self.thick = np.clip(thick, self.diag * 0.004, self.diag * self.p.max_feature)
+
+    def _init_relief(self):
+        """Profile feature size per edge (edge key -> size), see Params.profile_protect.
+
+        The shape diameter of a boot is the boot, so the 3 cm step of its heel
+        block could be flattened into a ramp with a 'small' relative error.  A
+        quad of the original mesh between a concave and an opposite convex
+        crease is a step riser; its crease-to-crease width is the size that
+        errors of the edges at its vertices are judged against.  Edges running
+        along the two creases themselves (they only round the outline of the
+        step) keep the part thickness."""
+        m = self.m
+        pos = m.pos
+        lo = self.diag * self.p.profile_min
+        hi = self.diag * self.p.max_feature
+        cos_c = math.cos(math.radians(self.p.crease_angle))
+        fn = {}
+        fc = {}
+        ef = {}
+        for fid, vs in enumerate(m.faces):
+            if vs is None:
+                continue
+            n = m.face_normal(vs)
+            l = float(np.linalg.norm(n))
+            fn[fid] = n / l if l > 1e-20 else None
+            fc[fid] = pos[vs].mean(0)
+            for i in range(len(vs)):
+                ef.setdefault(ekey(vs[i], vs[(i + 1) % len(vs)]), []).append(fid)
+        crease = {}                    # edge -> +1 convex, -1 concave
+        for k, fs in ef.items():
+            if len(fs) != 2 or fn[fs[0]] is None or fn[fs[1]] is None:
+                continue
+            if float(fn[fs[0]] @ fn[fs[1]]) < cos_c:
+                crease[k] = -1 if float((fc[fs[1]] - fc[fs[0]]) @ fn[fs[0]]) > 0 else 1
+        relief = {}                    # vertex -> smallest riser width
+        along = set()                  # the creases that bound a riser
+        cross = set()                  # riser edges from crease to crease
+        for fid, vs in enumerate(m.faces):
+            if vs is None or len(vs) != 4:
+                continue
+            for i in (0, 1):
+                a, b, c, d = vs[i], vs[(i + 1) % 4], vs[(i + 2) % 4], vs[(i + 3) % 4]
+                s1, s2 = crease.get(ekey(a, b)), crease.get(ekey(c, d))
+                if s1 is None or s2 is None or s1 == s2:
+                    continue
+                wdt = 0.5 * (float(np.linalg.norm(pos[b] - pos[c])) + float(np.linalg.norm(pos[d] - pos[a])))
+                if wdt < lo or wdt >= hi:
+                    continue
+                wdt = max(wdt, self.diag * 0.004)      # same floor as the thickness
+                along.add(ekey(a, b))
+                along.add(ekey(c, d))
+                cross.add(ekey(b, c))
+                cross.add(ekey(d, a))
+                for v in vs:
+                    if wdt < relief.get(v, hi):
+                        relief[v] = wdt
+        ep = {}
+        for k in ef:
+            if k in along and k not in cross:
+                continue
+            r = min(relief.get(k[0], hi), relief.get(k[1], hi))
+            if r < hi:
+                ep[k] = float(r)
+        return ep
 
     def _init_symmetry(self):
         nv = len(self.m.pos)
@@ -468,6 +542,8 @@ class Reducer:
         err = float(ph @ Q @ ph)
         dist = math.sqrt(max(err, 0.0) / (self.w[a] + self.w[b]))
         tau = min(self.thick[a], self.thick[b])
+        if self.eprofile:
+            tau = min(tau, self.eprofile.get(ekey(a, b), tau))
         rel = dist / tau
         if self.p.cost_mode == 'qem':
             # static props: plain quadric error + texture sliding, no loop logic
@@ -674,6 +750,15 @@ class Reducer:
                     etnew[nk] = min(ds)
             undo['et'] = {nk: et.get(nk) for nk in etnew}
             et.update(etnew)
+        ep = self.eprofile
+        if ep:
+            epnew = {}
+            for nk in l0new:
+                ds = [ep[k] for k in groups[nk] if k in ep]
+                if ds and ep.get(nk) != min(ds):
+                    epnew[nk] = min(ds)
+            undo['ep'] = {nk: ep.get(nk) for nk in epnew}
+            ep.update(epnew)
         ej = self.ejoint
         ejnew = {}
         if ej:
@@ -980,6 +1065,11 @@ class Reducer:
                 self.etube.pop(k, None)
             else:
                 self.etube[k] = val
+        for k, val in u.get('ep', {}).items():
+            if val is None:
+                self.eprofile.pop(k, None)
+            else:
+                self.eprofile[k] = val
         for k, val in u.get('ej', {}).items():
             if val is None:
                 self.ejoint.pop(k, None)
