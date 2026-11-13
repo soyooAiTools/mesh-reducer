@@ -4,3 +4,4 @@ build/
 dist/
 ci_results/
 *.blend1
+dev/tmp/
