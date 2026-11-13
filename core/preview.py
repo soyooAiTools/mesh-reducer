@@ -38,6 +38,30 @@ def _ensure_tex_material(obj, texture_path):
     return mat
 
 
+def _image_ok(img):
+    if img is None:
+        return False
+    try:
+        if img.packed_file is not None:
+            return True
+        p = bpy.path.abspath(img.filepath)
+        return bool(p) and os.path.isfile(p) and img.size[0] > 0
+    except Exception:
+        return False
+
+
+def _has_usable_texture(objs):
+    for o in objs:
+        for s in getattr(o, 'material_slots', []):
+            m = s.material
+            if not m or not m.use_nodes or not m.node_tree:
+                continue
+            for n in m.node_tree.nodes:
+                if n.type == 'TEX_IMAGE' and _image_ok(n.image):
+                    return True
+    return False
+
+
 def _make_wire(obj, thickness_world, color=(0, 0, 0, 1)):
     me = obj.data.copy()
     w = bpy.data.objects.new(obj.name + '_wire', me)
@@ -161,6 +185,12 @@ def render_views(objs, out_png, views=('front', 'back', 'left'), res=700,
                     o.data.materials.append(mat)
                 tmpmats.append(mat)
         wires.append(_make_wire(o, diag * (0.0012 if half is None else 0.0012 * max(0.25, 2 * half / max(size))) ) if wire else None)
+
+    # No usable texture (e.g. FBX references an image that isn't next to it):
+    # Workbench would draw missing images magenta, so fall back to plain grey.
+    if not cycles and textured and not _has_usable_texture(objs):
+        sh.color_type = 'SINGLE'
+        sh.single_color = (0.72, 0.72, 0.72)
 
     all_objs = [o for o in scene.objects if o.type == 'MESH']
     hidden = {o.name: o.hide_render for o in all_objs}

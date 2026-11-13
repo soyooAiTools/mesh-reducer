@@ -155,6 +155,7 @@ def run_selftest(args):
         from PySide6.QtWidgets import QApplication
         from app.mainwindow import MainWindow
         app = QApplication.instance() or QApplication(sys.argv[:1])
+        info['font'] = _apply_cjk_font(app)
         blender, ver = resolve_blender(args.blender, log)
         info['blender'] = blender
         info['blender_version'] = ver
@@ -209,10 +210,34 @@ def run_selftest(args):
     return code
 
 
+def _apply_cjk_font(app):
+    """Pick an installed CJK UI font so Chinese labels never render as boxes."""
+    try:
+        from PySide6.QtGui import QFont, QFontDatabase
+        import glob
+        fams = set(QFontDatabase.families())
+        if not any(f in fams for f in ('Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC')):
+            # offscreen / minimal platforms may not enumerate system fonts: register them directly
+            for pat in (r'C:\Windows\Fonts\msyh*.tt?', '/System/Library/Fonts/PingFang.ttc',
+                        '/usr/share/fonts/**/NotoSansCJK*.tt?', '/usr/share/fonts/**/wqy*.tt?'):
+                for fp in glob.glob(pat, recursive=True):
+                    QFontDatabase.addApplicationFont(fp)
+            fams = set(QFontDatabase.families())
+        for name in ('Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei'):
+            if name in fams:
+                f = QFont(name); f.setPointSize(max(9, app.font().pointSize()))
+                app.setFont(f)
+                return name
+    except Exception:
+        pass
+    return None
+
+
 def run_gui():
     from PySide6.QtWidgets import QApplication
     from app.mainwindow import MainWindow
     app = QApplication(sys.argv)
+    _apply_cjk_font(app)
     app.setApplicationName(paths.APP_NAME)
     win = MainWindow()
     win.show()

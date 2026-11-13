@@ -50,6 +50,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "C:\测试 目录\输出" | Out-Null
           Copy-Item testdata\jier_high.fbx "C:\测试 目录\吉尔_High.fbx"
           Copy-Item testdata\rock.fbx "C:\测试 目录\石头1.fbx"
+          Copy-Item testdata\jier_diffuse.png "C:\测试 目录\Hero_006_JiEr_Diffuse.png"
           New-Item -ItemType Directory -Force -Path ci_results | Out-Null
 
       - name: CLI test - Jier 1500 faces
