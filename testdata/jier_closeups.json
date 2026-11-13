@@ -1,0 +1,12 @@
+{
+ "hand":     {"center": [0.40, -0.03, 0.52], "half": 0.12, "view": "front"},
+ "arm":      {"center": [0.25, 0.0, 0.70], "half": 0.17, "view": "front"},
+ "arm_back": {"center": [-0.25, 0.0, 0.70], "half": 0.17, "view": "back"},
+ "back":     {"center": [0.0, 0.0, 0.72], "half": 0.24, "view": "back"},
+ "torso":    {"center": [0.0, 0.0, 0.74], "half": 0.22, "view": "front"},
+ "legs":     {"center": [0.0, 0.0, 0.33], "half": 0.22, "view": "front"},
+ "skirt":    {"center": [0.0, 0.0, 0.56], "half": 0.22, "view": "front"},
+ "boots":    {"center": [0.0, 0.0, 0.13], "half": 0.20, "view": "front34"},
+ "boot_side": {"center": [0.1, 0.0, 0.13], "half": 0.18, "view": "left"},
+ "head":     {"center": [0.0, 0.0, 1.17], "half": 0.36, "view": "front"}
+}

@@ -1,0 +1,12 @@
+{
+ "neck":       {"center": [0, 1.2, 89.2], "radius": 6},
+ "waist":      {"center": [0, -0.8, 65.5], "radius": 9},
+ "shoulder_L": {"center": [15.4, 1.8, 77.5], "radius": 5},
+ "shoulder_R": {"center": [-15.4, 1.8, 77.5], "radius": 5},
+ "elbow_L":    {"center": [22.5, 1.0, 71.3], "radius": 5},
+ "elbow_R":    {"center": [-22.5, 1.0, 71.3], "radius": 5},
+ "wrist_L":    {"center": [30.5, -0.6, 64.5], "radius": 4},
+ "wrist_R":    {"center": [-30.5, -0.6, 64.5], "radius": 4},
+ "knee_L":     {"center": [8.9, 1.4, 35.5], "radius": 6},
+ "knee_R":     {"center": [-8.9, 1.4, 35.5], "radius": 6}
+}

@@ -1,0 +1,11 @@
+schema_version = "1.0.0"
+
+id = "mesh_reducer"
+version = "1.0.0"
+name = "Mesh Reducer 减面"
+tagline = "Loop-aware, quad-preserving mesh reduction for game characters and props"
+maintainer = "MeshReducer"
+type = "add-on"
+tags = ["Mesh"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]

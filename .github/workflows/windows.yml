@@ -1,0 +1,136 @@
+name: windows-build-and-test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install app dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build exe (PyInstaller)
+        run: pyinstaller --noconfirm mesh_reducer.spec
+
+      - name: Download Blender 5.2 (latest patch)
+        shell: pwsh
+        run: |
+          $base = "https://download.blender.org/release/Blender5.2/"
+          $html = (Invoke-WebRequest -UseBasicParsing $base).Content
+          $files = [regex]::Matches($html, 'blender-5\.2\.(\d+)-windows-x64\.zip') | ForEach-Object { $_.Value } | Sort-Object -Unique
+          $latest = $files | Sort-Object { [int]([regex]::Match($_, '5\.2\.(\d+)').Groups[1].Value) } | Select-Object -Last 1
+          Write-Host "Using $latest"
+          Invoke-WebRequest -UseBasicParsing ($base + $latest) -OutFile blender.zip
+          Expand-Archive blender.zip -DestinationPath C:\blender
+          $exe = Get-ChildItem C:\blender -Recurse -Filter blender.exe | Select-Object -First 1
+          "BLENDER_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $exe.FullName --version
+
+      - name: Prepare test folder with Chinese path
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "C:\测试 目录\输出" | Out-Null
+          Copy-Item testdata\jier_high.fbx "C:\测试 目录\吉尔_High.fbx"
+          Copy-Item testdata\rock.fbx "C:\测试 目录\石头1.fbx"
+          New-Item -ItemType Directory -Force -Path ci_results | Out-Null
+
+      - name: CLI test - Jier 1500 faces
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\MeshReducer\MeshReducer.exe -Wait -PassThru -ArgumentList @(
+            '--cli', '--blender', "`"$env:BLENDER_EXE`"",
+            '--in', '"C:\测试 目录\吉尔_High.fbx"', '--out', '"C:\测试 目录\输出\吉尔_1500.fbx"',
+            '--faces', '1500', '--mode', 'character',
+            '--report', "`"$PWD\ci_results\jier_1500.json`"", '--log', "`"$PWD\ci_results\jier_1500_log.txt`"")
+          "exit=$($p.ExitCode)" | Out-File ci_results\jier_1500_exit.txt
+          if ($p.ExitCode -ne 0) { Get-Content ci_results\jier_1500_log.txt -ErrorAction SilentlyContinue; exit 1 }
+          Copy-Item "C:\测试 目录\输出\吉尔_1500.fbx" ci_results\jier_1500.fbx
+
+      - name: CLI test - rock 50%
+        if: always()
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\MeshReducer\MeshReducer.exe -Wait -PassThru -ArgumentList @(
+            '--cli', '--blender', "`"$env:BLENDER_EXE`"",
+            '--in', '"C:\测试 目录\石头1.fbx"', '--out', '"C:\测试 目录\输出\石头1_50.fbx"',
+            '--faces', '3714', '--mode', 'prop',
+            '--report', "`"$PWD\ci_results\rock_50.json`"", '--log', "`"$PWD\ci_results\rock_50_log.txt`"")
+          "exit=$($p.ExitCode)" | Out-File ci_results\rock_50_exit.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: GUI self-test (offscreen)
+        if: always()
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $p = Start-Process -FilePath dist\MeshReducer\MeshReducer.exe -Wait -PassThru -ArgumentList @(
+            '--selftest', '--blender', "`"$env:BLENDER_EXE`"",
+            '--in', '"C:\测试 目录\吉尔_High.fbx"', '--outdir', "`"$PWD\ci_results\gui`"")
+          "exit=$($p.ExitCode)" | Out-File ci_results\gui_exit.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Package exe
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path dist\MeshReducer) {
+            Compress-Archive -Path dist\MeshReducer -DestinationPath MeshReducer-win64.zip -Force
+          }
+
+      - name: Upload exe artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeshReducer-win64
+          path: MeshReducer-win64.zip
+          if-no-files-found: warn
+
+      - name: Upload test results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-results
+          path: ci_results
+          if-no-files-found: warn
+
+      # Push results + exe (split into <45MB parts) to an orphan branch so they can be fetched with plain git.
+      - name: Publish results to ci-results branch
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path publish | Out-Null
+          if (Test-Path ci_results) { Copy-Item -Recurse ci_results publish\ci_results }
+          if (Test-Path MeshReducer-win64.zip) {
+            $in = [System.IO.File]::OpenRead("$PWD\MeshReducer-win64.zip")
+            $buf = New-Object byte[] (45MB); $i = 0
+            while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+              $out = [System.IO.File]::Create("$PWD\publish\MeshReducer-win64.zip.part$('{0:D2}' -f $i)")
+              $out.Write($buf, 0, $n); $out.Close(); $i++
+            }
+            $in.Close()
+          }
+          "run=${{ github.run_id }} sha=${{ github.sha }} job_status=${{ job.status }}" | Out-File publish\RUN_INFO.txt
+          cd publish
+          git init -q -b ci-results
+          git config user.name "ci-bot"; git config user.email "ci-bot@users.noreply.github.com"
+          git add -A; git commit -q -m "CI results for ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" ci-results

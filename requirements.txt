@@ -1,0 +1,2 @@
+# Dependencies of the desktop app only (the algorithm runs inside Blender's own Python).
+PySide6-Essentials>=6.6
