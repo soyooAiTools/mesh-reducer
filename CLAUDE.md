@@ -4,7 +4,7 @@
 
 ## 要点
 
-- 这是一个"像美术一样删环线"的四边面减面工具。核心操作是环带塌陷（`core/character.py`）。**不要改成 QEM 三角塌陷或重新布线**，之前的失败就是这么来的。
+- 这是一个"像美术一样删环线"的四边面减面工具。核心操作是环带塌陷（`core/character.py`）。**不要改成 QEM 三角塌陷或重新布线**，之前的失败就是这么来的。唯一的附加操作是 `heal_quads`（塌陷后把"被对角线劈开的四边面"的两个三角面拼回四边面，不移动顶点），用户已于 2026-11-14 确认保留。
 - 用户需要独立的 Windows exe（`app/`）。它在后台调用 Blender 5.2（`runner.py`），**不用 Blender MCP**。
 - 用户沟通用中文。
 
@@ -12,7 +12,7 @@
 
 ```bash
 pip install bpy==5.2.4 numpy PySide6
-python3 dev/bench.py 1500            # 回归基线（Mac arm64）：faces 1499 / quads 1204 / Hausdorff≈0.99% / 翻转 0 / UV 岛 99/99
+python3 dev/bench.py 1500            # 回归基线（Mac arm64）：faces 1499 / quads 1309 / Hausdorff≈0.81% / 翻转 0 / UV 岛 99/99 / 闭合四边环 148
 python3 runner.py -- --in testdata/jier_high.fbx --out /tmp/o.fbx --faces 1500 --mode character --renders /tmp/r
 python3 evaluate.py testdata/jier_high.fbx /tmp/o.fbx --texture testdata/jier_diffuse.png --regions testdata/jier_regions.json
 QT_QPA_PLATFORM=offscreen python3 app/main.py --selftest --blender python3 --in testdata/jier_high.fbx --outdir /tmp/st

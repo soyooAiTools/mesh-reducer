@@ -8,6 +8,10 @@ of a quad.  Collapsing every edge of a ring deletes one whole strip of quads
 Because a ring is closed under "opposite edge of a quad", no quad is ever
 turned into a triangle and no n-gon is ever produced: quads stay quads, all
 remaining edge loops stay complete loops, the triangle count can only go down.
+(Two extras around it: a *partial* collapse removes a loop only along a stretch
+and ends in triangles - last resort, see Params.tri_penalty; and after a
+collapse two triangles that are just the halves of a quad get their diagonal
+dissolved again, see Params.heal_quads.  Neither moves away from loop removal.)
 
 Which ring goes first is decided by a cost made of
   * geometric error (quadrics of the ORIGINAL surface, relative to the local
@@ -59,7 +63,19 @@ class Params:
         self.uv_weight = 1.0           # weight of texture sliding vs geometric error
         self.partial = True            # allow partial ring collapses when stuck
         self.max_tri_ratio = None      # max fraction of triangles (None -> original)
-        self.tri_penalty = 2.0         # cost factor for ending a loop in triangles
+        self.tri_penalty = 30.0        # cost factor for a partial collapse (a loop removed only along a stretch, ending
+                                       # in a new triangle at each cut): cost *= 1 + tri_penalty * new_tris / faces_removed.
+                                       # Every such cut puts a pole / slanted edge into clean quad flow and breaks the
+                                       # loops that cross it, so it must be a last resort.  With the old value 2 partial
+                                       # collapses competed with whole loops and left fans on the back of the skirt and
+                                       # between the shoulder blades (artist review); 30..40 gives identical results on Jier
+        self.heal_quads = True         # after a collapse, two triangles that are left as the two halves of a quad
+                                       # (planar, convex, shared edge = the diagonal, no seam / hard edge on it) are
+                                       # put back together by dissolving that diagonal.  No vertex moves or disappears;
+                                       # it only gives the edge loops that ended at the two triangles their way through
+                                       # again (artist-made "1 column -> 2 columns" fans degrade into such split quads
+                                       # once the doubled columns are gone).  Triangles no collapse touched are left alone
+        self.heal_angle = 20.0         # max angle (degrees) between the two triangles of a split quad
         self.fit = True
         self.progress = None           # callback(fraction, message)
         for k, v in kw.items():
@@ -1386,6 +1402,94 @@ class Reducer:
                     i = j + 1
         return res
 
+    def heal_split_quads(self, fids):
+        """Dissolve the diagonal of split quads among the given (just modified)
+        faces: a pair of triangles that together are a planar convex quad whose
+        diagonal is their shared edge.  -> set of vertices whose faces changed"""
+        m = self.m
+        pos = m.pos
+        cos_max = math.cos(math.radians(self.p.heal_angle))
+        cands = []
+        seen = set()
+        for f1 in fids:
+            vs = m.faces[f1]
+            if vs is None or len(vs) != 3:
+                continue
+            for i in range(3):
+                a, b, c = vs[i], vs[(i + 1) % 3], vs[(i + 2) % 3]
+                if self.info(a).get(b, 1) != 0:
+                    continue                      # border / seam / hard edge / non-manifold
+                fs = m.vf[a] & m.vf[b]
+                if len(fs) != 2:
+                    continue
+                f2 = next(f for f in fs if f != f1)
+                v2 = m.faces[f2]
+                if len(v2) != 3 or m.fcomp[f2] != m.fcomp[f1] or (min(f1, f2), max(f1, f2)) in seen:
+                    continue
+                seen.add((min(f1, f2), max(f1, f2)))
+                d = next(v for v in v2 if v != a and v != b)
+                if d == c or v2[(v2.index(b) + 1) % 3] != a:
+                    continue                      # inconsistent winding
+                lab = float(np.linalg.norm(pos[a] - pos[b]))
+                if any(float(np.linalg.norm(pos[x] - pos[y])) > lab * (1 + 1e-9)
+                       for x, y in ((a, c), (b, c), (a, d), (b, d))):
+                    continue                      # the shared edge is not the diagonal
+                n1 = m.face_normal(vs)
+                n2 = m.face_normal(v2)
+                l = float(np.linalg.norm(n1)) * float(np.linalg.norm(n2))
+                if l < 1e-30:
+                    continue
+                cs = float(n1 @ n2) / l
+                if cs < cos_max:
+                    continue
+                quad = [c, a, d, b]
+                # corners must look like quad corners
+                ok = True
+                for j in range(4):
+                    e1 = pos[quad[j - 1]] - pos[quad[j]]
+                    e2 = pos[quad[(j + 1) % 4]] - pos[quad[j]]
+                    ca = float(e1 @ e2) / ((float(np.linalg.norm(e1)) * float(np.linalg.norm(e2))) or 1e-30)
+                    if abs(ca) > 0.82:            # outside 35..145 degrees
+                        ok = False
+                        break
+                if not ok or not self._quad_ok(quad, n1 + n2):
+                    continue
+                cands.append((-cs, f1, f2, a, b, c, d))
+        cands.sort()
+        touched = set()
+        used = set()
+        for _, f1, f2, a, b, c, d in cands:
+            if f1 in used or f2 in used:
+                continue
+            # a and b lose an edge: they must keep at least 3 (interior) / 2 (border) faces
+            bad = False
+            for v in (a, b):
+                border = any(mk & (BOUNDARY | NONMANIFOLD) for mk in self.info(v).values())
+                if len(m.vf[v]) - 1 < (2 if border else 3):
+                    bad = True
+            if bad:
+                continue
+            vs = m.faces[f1]
+            v2 = m.faces[f2]
+            uv1 = m.fuv[f1]
+            uv2 = m.fuv[f2]
+            m.faces[f1] = [c, a, d, b]
+            m.fuv[f1] = [uv1[vs.index(c)], uv1[vs.index(a)], uv2[v2.index(d)], uv1[vs.index(b)]]
+            m.faces[f2] = None
+            for v in v2:
+                m.vf[v].discard(f2)
+            m.vf[d].add(f1)
+            m.alive_faces -= 1
+            self.comp_alive[m.fcomp[f2]] -= 1
+            self.n_tris -= 2
+            self.n_healed += 1
+            used.add(f1)
+            used.add(f2)
+            for v in (a, b, c, d):
+                self.vinfo.pop(v, None)
+                touched.add(v)
+        return touched
+
     def _count_tris_around(self, out):
         m = self.m
         fs = set()
@@ -1450,6 +1554,7 @@ class Reducer:
         self.n_tris = t0
         self.max_tris_frac = p.max_tri_ratio if p.max_tri_ratio is not None else max(t0 / max(1, self.nfaces0), 0.10)
         self.n_requeued = 0
+        self.n_healed = 0
         self.last_exact = 0.0
         from . import joints
         rcache = {}          # ring key -> [vertex set, full op, band quads, partial ops]
@@ -1594,6 +1699,10 @@ class Reducer:
                     continue
                 self.n_tris += self._count_tris_around(out) - tri_before
                 dirty |= self.invalidate_after(u['touched'])
+                if p.heal_quads:
+                    ht = self.heal_split_quads(list(u['faces']))
+                    if ht:
+                        dirty |= self.invalidate_after(ht)
                 applied += 1
                 if best is None:
                     best = cost
