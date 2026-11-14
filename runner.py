@@ -52,7 +52,13 @@ def parse_args(argv):
     ap.add_argument('--no-sharp', action='store_true', help='do not treat hard edges as constraints')
     ap.add_argument('--no-joints', action='store_true', help='no automatic joint loop protection')
     ap.add_argument('--joint-strength', type=float, default=5.0)
-    ap.add_argument('--prop-method', default='strict', choices=['strict', 'fast'])
+    ap.add_argument('--prop-method', default='strict', choices=['strict', 'fast', 'auto'],
+                    help='auto: strict, but fast (Blender decimate) below 25%% of the faces')
+    ap.add_argument('--link-textures', action='store_true',
+                    help='link <material>_BC / <material>_N images next to the input to the materials and '
+                         'copy them next to the output (FBX, relative paths)')
+    ap.add_argument('--material-targets', default='',
+                    help='prop mode, JSON {material slot index: faces}: own face budget per material')
     ap.add_argument('--report', default='', help='write the result JSON here')
     ap.add_argument('--renders', default='', help='folder for before/after preview PNGs')
     ap.add_argument('--texture', default='', help='texture used for previews and the texture error metric')
@@ -116,7 +122,7 @@ def find_texture(model_path, objs):
     return ''
 
 
-def do_renders(pairs, outdir, texture, engine, res, stem):
+def do_renders(pairs, outdir, texture, engine, res, stem, use_materials=False):
     """pairs: [(result_obj, orig_obj)] -> list of written png paths"""
     from core import preview
     os.makedirs(outdir, exist_ok=True)
@@ -132,7 +138,7 @@ def do_renders(pairs, outdir, texture, engine, res, stem):
             for name, views in sets:
                 p = os.path.join(outdir, '%s_%s.png' % (stem, name))
                 preview.render_views([r, o], p, views=views, res=res, texture=texture or None, engine=eng,
-                                     textured=bool(texture))
+                                     textured=bool(texture) or use_materials)
                 if not os.path.isfile(p) or os.path.getsize(p) < 1000:
                     raise RuntimeError('render produced no image')
                 out.append(p)
@@ -184,6 +190,12 @@ def main(argv=None):
         objs = [o for o in objs if len(o.data.polygons) > 0]
         if not objs:
             raise RuntimeError('the file contains no mesh')
+        if args.link_textures:
+            from core import materials
+            for rep_ in materials.link_textures(objs, os.path.dirname(os.path.abspath(args.inp))):
+                emit('LOG', 'textures: %s' % json.dumps(rep_, ensure_ascii=False))
+        skinned = any(m.type == 'ARMATURE' for o in objs for m in o.modifiers)
+        mat_targets = json.loads(args.material_targets) if args.material_targets else None
         total = sum(len(o.data.polygons) for o in objs)
         if args.faces > 0:
             ratio = min(1.0, args.faces / total)
@@ -225,7 +237,8 @@ def main(argv=None):
             else:
                 new, info = prop.reduce_prop(
                     o, target_faces=tgt, symmetry=sym, preserve_seams=not args.no_seams,
-                    preserve_sharp=not args.no_sharp, method=args.prop_method.upper(), progress=cb)
+                    preserve_sharp=not args.no_sharp, method=args.prop_method.upper(), progress=cb,
+                    material_targets=mat_targets if len(objs) == 1 else None)
             info['object'] = o.name
             new_name = o.name
             o.name = o.name + '__orig'
@@ -234,7 +247,9 @@ def main(argv=None):
             pairs.append((new, o))
             done += n
         progress(0.82, 'exporting')
-        io_util.export_file(args.out, [p[0] for p in pairs])
+        # skinned meshes keep the axes of the source file, so the skeleton's rest matrices stay as they were
+        axes = io_util.fbx_axes(args.inp) if skinned and args.inp.lower().endswith('.fbx') else None
+        io_util.export_file(args.out, [p[0] for p in pairs], copy_textures=args.link_textures, axes=axes)
         res = {'ok': True, 'input': os.path.abspath(args.inp), 'output': os.path.abspath(args.out),
                'faces_before': total, 'faces_after': sum(r['faces_after'] for r in results),
                'objects': results, 'renders': [], 'blender': bpy.app.version_string}
@@ -247,7 +262,11 @@ def main(argv=None):
                     regions = json.load(f)
             ms = []
             for new, o in pairs:
-                m = metrics.evaluate(o.data, new.data, texture=tex or None, regions=regions)
+                mtex = tex or None
+                if args.link_textures:
+                    from core import materials
+                    mtex = {i: materials.base_image_path(sl.material) for i, sl in enumerate(o.material_slots)}
+                m = metrics.evaluate(o.data, new.data, texture=mtex, regions=regions)
                 m['object'] = new.name
                 ms.append(m)
             res['metrics'] = ms
@@ -261,7 +280,8 @@ def main(argv=None):
         if args.renders:
             progress(0.93, 'rendering previews')
             stem = os.path.splitext(os.path.basename(args.out))[0]
-            imgs, eng, err = do_renders(pairs, args.renders, tex, args.engine.lower(), args.res, stem)
+            imgs, eng, err = do_renders(pairs, args.renders, '' if args.link_textures else tex,
+                                        args.engine.lower(), args.res, stem, use_materials=args.link_textures)
             res['renders'] = imgs
             res['render_engine'] = eng
             if err and not imgs:

@@ -53,6 +53,32 @@ def _transfer_extras(src, new, flat):
             nm.use_vertex_groups = m.use_vertex_groups
 
 
+def max_influences(obj):
+    return max((sum(1 for g in v.groups if g.weight > 0) for v in obj.data.vertices), default=0)
+
+
+def limit_skin_weights(obj, limit=4):
+    """keep the `limit` strongest vertex groups per vertex and renormalise
+    (interpolated weights can use more bones than the source did; game engines
+    cut at 4 by default).  Returns the number of vertices changed."""
+    changed = 0
+    groups = obj.vertex_groups
+    for v in obj.data.vertices:
+        gs = [(g.weight, g.group) for g in v.groups if g.weight > 0]
+        if len(gs) <= limit:
+            continue
+        gs.sort(reverse=True)
+        keep, drop = gs[:limit], gs[limit:]
+        tot = sum(w for w, _ in gs)
+        ksum = sum(w for w, _ in keep) or 1.0
+        for _w, gi in drop:
+            groups[gi].remove([v.index])
+        for w, gi in keep:
+            groups[gi].add([v.index], w * tot / ksum, 'REPLACE')
+        changed += 1
+    return changed
+
+
 def reduce_character(obj, target_faces=None, ratio=0.5, symmetry='AUTO', protect_group=None,
                      preserve_seams=True, preserve_sharp=True, auto_joints=True,
                      protect_strength=4.0, joint_strength=5.0, do_fit=True, progress=None, name=None,

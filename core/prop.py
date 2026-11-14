@@ -117,7 +117,8 @@ def _repair_uv(src_me, res_me, stretch_limit=1.0, passes=3):
 
 
 def reduce_prop(obj, target_faces=None, ratio=0.5, symmetry='NONE', preserve_seams=True,
-                preserve_sharp=True, method='STRICT', do_fit=True, progress=None, name=None, **_unused):
+                preserve_sharp=True, method='STRICT', do_fit=True, progress=None, name=None, weld=True,
+                relax_seams='STUCK', material_targets=None, **_unused):
     """Triangle friendly reduction for static props.
 
     method 'STRICT' (default): our own edge-collapse decimator.  UV seams of
@@ -127,20 +128,30 @@ def reduce_prop(obj, target_faces=None, ratio=0.5, symmetry='NONE', preserve_sea
     method 'FAST': Blender's Decimate modifier followed by a numeric UV check
     (it is quicker and geometrically a little tighter, but it lets a few UV
     triangles flip next to seams)."""
+    if method == 'AUTO':
+        # our own decimator keeps every seam exact but is not made for very strong
+        # reductions (it gets stuck or folds thin parts); below a quarter of the faces
+        # Blender's quadric decimator is clearly closer to the original (see HANDOFF)
+        n = len(obj.data.polygons)
+        r = (target_faces / max(1, n)) if target_faces else ratio
+        method = 'FAST' if r < 0.25 else 'STRICT'
     if method == 'FAST':
-        return _reduce_prop_blender(obj, target_faces, ratio, symmetry, preserve_seams, progress, name)
+        return _reduce_prop_blender(obj, target_faces, ratio, symmetry, preserve_seams, progress, name,
+                                    weld=weld, material_targets=material_targets)
     from .rmesh import RMesh
     from . import character, fit as fitmod, api
     t0 = time.time()
     me = obj.data
-    mesh = RMesh.from_blender(me, use_sharp=preserve_sharp)
+    mesh = RMesh.from_blender(me, use_sharp=preserve_sharp, weld=weld)
     user_progress = progress
     if progress:
         def progress(f, msg=''):
             user_progress(0.05 + 0.78 * f, msg)
     params = character.Params(target_faces=target_faces, ratio=ratio, symmetry='NONE', auto_joints=False,
                               preserve_seams=preserve_seams, preserve_sharp=preserve_sharp,
-                              seam_layers='ALL', cost_mode='qem', progress=progress)
+                              seam_layers='ALL', cost_mode='qem', progress=progress,
+                              relax_seams=relax_seams,
+                              group_targets={int(k): int(v) for k, v in material_targets.items()} if material_targets else None)
     if user_progress:
         user_progress(0.02, 'analysing mesh')
     red = character.Reducer(mesh, params)
@@ -174,12 +185,65 @@ def reduce_prop(obj, target_faces=None, ratio=0.5, symmetry='NONE', preserve_sea
     return new, info
 
 
+def weld_mesh(me, rel_dist=1e-7):
+    """merge vertices that sit at the same position (in place).  Returns the
+    number of vertices removed.  See RMesh.from_blender(weld=True): meshes
+    exported split along UV seams / smoothing groups must be closed before any
+    edge collapse or the surface tears open along those seams."""
+    n0 = len(me.vertices)
+    if n0 == 0:
+        return 0
+    co = np.empty(n0 * 3, dtype=np.float32)
+    me.vertices.foreach_get('co', co)
+    co = co.reshape(n0, 3)
+    diag = float(np.linalg.norm(co.max(0) - co.min(0)))
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=max(diag * rel_dist, 1e-12))
+    bm.to_mesh(me)
+    bm.free()
+    return n0 - len(me.vertices)
+
+
+def _decimate_mesh(me, want, symmetry='NONE'):
+    """Blender Decimate (collapse) of mesh datablock `me` to `want` polygons -> new mesh"""
+    tmp = bpy.data.objects.new('mr_tmp_decimate', me)
+    bpy.context.scene.collection.objects.link(tmp)
+    try:
+        n = len(me.polygons)
+        r = min(1.0, want / max(1, n))
+        out = None
+        for _ in range(5):
+            for m in list(tmp.modifiers):
+                tmp.modifiers.remove(m)
+            mod = tmp.modifiers.new('mr_decimate', 'DECIMATE')
+            mod.decimate_type = 'COLLAPSE'
+            mod.ratio = r
+            mod.use_collapse_triangulate = False
+            if symmetry in ('X', 'Y', 'Z'):
+                mod.use_symmetry = True
+                mod.symmetry_axis = symmetry
+            dg = bpy.context.evaluated_depsgraph_get()
+            ev = tmp.evaluated_get(dg)
+            if out is not None:
+                bpy.data.meshes.remove(out)
+            out = bpy.data.meshes.new_from_object(ev, preserve_all_data_layers=True, depsgraph=dg)
+            got = len(out.polygons)
+            if abs(got - want) <= max(1, int(0.002 * want)) or got == 0:
+                break
+            r = min(1.0, r * want / max(1, got))
+        return out
+    finally:
+        bpy.data.objects.remove(tmp)
+
+
 def _reduce_prop_blender(obj, target_faces=None, ratio=0.5, symmetry='NONE', preserve_seams=True,
-                         progress=None, name=None):
+                         progress=None, name=None, weld=False, material_targets=None):
     t0 = time.time()
     src = obj.data
     me = src.copy()
     me.name = name or (src.name + '_reduced')
+    welded = weld_mesh(me) if weld else 0
     new = bpy.data.objects.new(name or (obj.name + '_reduced'), me)
     for c in (list(obj.users_collection) or [bpy.context.scene.collection]):
         c.objects.link(new)
@@ -227,7 +291,35 @@ def _reduce_prop_blender(obj, target_faces=None, ratio=0.5, symmetry='NONE', pre
             r = min(1.0, r * want / max(1, got))
             out = run(r)
         return out
-    out = run_to_target(r)
+    if material_targets:
+        # every material gets its own budget: decimate the faces of each material
+        # separately (materials never share an edge after such a split) and
+        # put the pieces back into one mesh
+        mt = {int(k): int(v) for k, v in material_targets.items()}
+        mi = np.empty(len(me.polygons), dtype=np.int32)
+        me.polygons.foreach_get('material_index', mi)
+        acc = bmesh.new()
+        for k in sorted(set(mi.tolist())):
+            part = me.copy()
+            bm = bmesh.new()
+            bm.from_mesh(part)
+            bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index != k], context='FACES')
+            bm.to_mesh(part)
+            bm.free()
+            nk = len(part.polygons)
+            tk = mt.get(k, int(round(nk * r)))
+            if tk < nk:
+                dec = _decimate_mesh(part, max(1, tk), symmetry)
+                bpy.data.meshes.remove(part)
+                part = dec
+            acc.from_mesh(part)
+            bpy.data.meshes.remove(part)
+        out = me.copy()
+        acc.to_mesh(out)
+        acc.free()
+        want = len(out.polygons)
+    else:
+        out = run_to_target(r)
     uv_report = {}
     if preserve_seams and len(src.uv_layers):
         uv_report = _repair_uv(src, out)
@@ -258,10 +350,13 @@ def _reduce_prop_blender(obj, target_faces=None, ratio=0.5, symmetry='NONE', pre
         if m.type == 'ARMATURE':
             nm = new.modifiers.new(m.name, 'ARMATURE')
             nm.object = m.object
+    if len(obj.vertex_groups):
+        from . import api
+        api.limit_skin_weights(new, max(4, api.max_influences(obj)))
     q = sum(1 for p in new.data.polygons if p.loop_total == 4)
     t = sum(1 for p in new.data.polygons if p.loop_total == 3)
     info = {'mode': 'prop', 'method': 'FAST', 'faces_before': n_poly, 'faces_after': len(new.data.polygons), 'quads': q, 'tris': t,
-            'ngons': len(new.data.polygons) - q - t, 'target': want, 'stuck': False, 'uv_repair': uv_report,
+            'ngons': len(new.data.polygons) - q - t, 'target': want, 'stuck': False, 'uv_repair': uv_report, 'welded_vertices': welded,
             'seconds': round(time.time() - t0, 2)}
     if progress:
         progress(1.0, 'done')

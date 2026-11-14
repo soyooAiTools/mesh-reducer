@@ -76,6 +76,16 @@ class Params:
                                        # again (artist-made "1 column -> 2 columns" fans degrade into such split quads
                                        # once the doubled columns are gone).  Triangles no collapse touched are left alone
         self.heal_angle = 20.0         # max angle (degrees) between the two triangles of a split quad
+        self.relax_seams = False       # edge-collapse (prop) mode only.  False: UV seams are hard constraints.
+                                       # True: a collapse that breaks a seam rule (moves a seam vertex off its seam,
+                                       # merges two seams, moves a seam corner) is allowed but pays for the texture
+                                       # sliding it causes (the moved distance counts like a geometric error, times
+                                       # relax_weight).  Faces / UV triangles still may not flip.  Needed for very
+                                       # strong reductions of meshes cut into many small UV islands, which otherwise
+                                       # get stuck far above the target.  'STUCK': only once nothing else is possible
+        self.relax_weight = 1.0
+        self.group_targets = None      # edge-collapse mode: {material index: target face count}; every material is
+                                       # reduced to its own budget (None: one global budget, i.e. uniform error)
         self.fit = True
         self.progress = None           # callback(fraction, message)
         for k, v in kw.items():
@@ -98,6 +108,7 @@ class Reducer:
         self.nfaces0 = m.alive_faces
         ext = m.pos.max(0) - m.pos.min(0)
         self.diag = float(np.linalg.norm(ext))
+        self.relax = False             # see Params.relax_seams (switched on by run_edges)
         self.kinds = []
         self.kindmask = NONMANIFOLD
         if params.preserve_boundary:
@@ -475,6 +486,8 @@ class Reducer:
         if emask & NONMANIFOLD:
             return None
         t = 'free'
+        relax = self.relax
+        self._relaxed = False
         for kbit in self.kinds:
             na = nb = 0
             for msk in ia.values():
@@ -487,17 +500,29 @@ class Reducer:
                 continue
             ca = 0 if na == 0 else (1 if na == 2 else 2)
             cb = 0 if nb == 0 else (1 if nb == 2 else 2)
+            soft = relax and kbit >= SHARP        # hard edges and UV seams (never borders)
+            pay = kbit >= SEAM0                   # only a broken seam rule slides texture
             if emask & kbit:
                 if ca == 2 and cb == 2:
-                    return None
+                    if not soft:
+                        return None
+                    self._relaxed |= pay
+                    continue
                 want = 0.0 if ca == 2 else (1.0 if cb == 2 else 'free')
             else:
                 if ca > 0 and cb > 0:
-                    return None
-                want = 0.0 if ca > 0 else 1.0
+                    if not soft:
+                        return None
+                    self._relaxed |= pay
+                    want = 0.0 if ca > cb else (1.0 if cb > ca else 'free')
+                else:
+                    want = 0.0 if ca > 0 else 1.0
             if want != 'free':
                 if t != 'free' and t != want:
-                    return None
+                    if not soft:
+                        return None
+                    self._relaxed |= pay
+                    continue
                 t = want
         # triangles on the edge: their two other edges fuse -> must not both
         # be features of the same kind; other common neighbours break manifoldness
@@ -515,6 +540,9 @@ class Reducer:
                 if ia[c] & ib[c] & ~0:
                     for kbit in self.kinds:
                         if ia[c] & ib[c] & kbit:
+                            if relax and kbit >= SHARP:
+                                self._relaxed |= kbit >= SEAM0
+                                continue
                             return None
                 if (ia[c] | ib[c]) & NONMANIFOLD:
                     return None
@@ -528,6 +556,14 @@ class Reducer:
         t = self._constraint(a, b, ia, ib)
         if t is None:
             return None
+        relaxed = self._relaxed
+        if self.relax and t == 'free' and (relaxed or any(mk & ~(BOUNDARY | NONMANIFOLD) for mk in ia.values())
+                                           or any(mk & ~(BOUNDARY | NONMANIFOLD) for mk in ib.values())):
+            # a relaxed collapse keeps one end point: wedges without a partner
+            # across the edge keep their UV, so only one side slides
+            ha, hb = np.append(m.pos[a], 1.0), np.append(m.pos[b], 1.0)
+            Qs = self.Q[a] + self.Q[b]
+            t = 0.0 if float(ha @ Qs @ ha) <= float(hb @ Qs @ hb) else 1.0
         ma, mb = self.mirror[a], self.mirror[b]
         if ma == b and mb == a:           # edge crosses the mirror plane
             if t == 'free':
@@ -566,6 +602,8 @@ class Reducer:
             dev, shift = self._slide_error(a, b, t, p, ia, ib)
             wsum = self.w[a] + self.w[b]
             cost = max(err, 0.0) + wsum * ((self.p.uv_weight * shift) ** 2 + 1e-4 * float(d @ d))
+            if relaxed:
+                cost += wsum * self.p.relax_weight ** 2 * float(d @ d)
             return (cost, t, p, dist, shift, 1.0, tau, 0.0)
         # stretch of surviving edges relative to the original loop spacing
         S = 1.0
@@ -1729,20 +1767,57 @@ class Reducer:
         target = p.target_faces if p.target_faces else int(round(self.nfaces0 * p.ratio))
         target = max(4, target)
         start = m.alive_faces
-        heap = []
-        cnt = 0
-        for (a, b) in list(self.l0.keys()):
-            r = self.eval_edge(a, b)
-            if r is not None:
-                heap.append((r[0], cnt, a, b, r))
-                cnt += 1
-        heapq.heapify(heap)
+        self.relax = p.relax_seams is True
+        # per material budgets
+        gt = p.group_targets
+        fmat = getattr(m, 'fmat', None)
+        galive = {}
+        if gt and fmat is not None:
+            for fid, vs in enumerate(m.faces):
+                if vs is not None:
+                    galive[fmat[fid]] = galive.get(fmat[fid], 0) + 1
+            gt = {g: max(1, int(gt.get(g, galive[g]))) for g in galive}
+            target = sum(min(gt[g], galive[g]) for g in galive)
+        else:
+            gt = None
+
+        def fill():
+            hp = []
+            c = 0
+            for (a, b) in list(self.l0.keys()):
+                if not m.vf[a] or not m.vf[b]:
+                    continue
+                r = self.eval_edge(a, b)
+                if r is not None:
+                    hp.append((r[0], c, a, b, r))
+                    c += 1
+            heapq.heapify(hp)
+            return hp, c
+        heap, cnt = fill()
+        last_refill = m.alive_faces
         n = 0
         ecache = self.ecache
-        while m.alive_faces > target and heap:
+        while m.alive_faces > target:
+            if not heap:
+                # collapses that failed earlier may have become possible; then relax
+                if m.alive_faces < last_refill:
+                    last_refill = m.alive_faces
+                    ecache.clear()
+                    heap, cnt = fill()
+                    continue
+                if p.relax_seams == 'STUCK' and not self.relax:
+                    self.relax = True
+                    ecache.clear()
+                    heap, cnt = fill()
+                    continue
+                break
             cost, _, a, b, r = heapq.heappop(heap)
             if ecache.get((a, b)) is not r:
                 continue
+            if gt is not None:
+                g = fmat[next(iter(m.vf[a]))] if m.vf[a] else None
+                if g is None or galive[g] <= gt[g]:
+                    continue
             ia = self.info(a)
             ib = self.info(b)
             apex = [c for c in ia if c in ib]
@@ -1750,6 +1825,9 @@ class Reducer:
             if u is None:
                 ecache[(a, b)] = None
                 continue
+            if gt is not None:
+                for fid in u['removed']:
+                    galive[fmat[fid]] -= 1
             self.vacc[a], self.uacc[a] = r[3], r[4]
             for v in (a, b):
                 mv = u['mirror'][v]

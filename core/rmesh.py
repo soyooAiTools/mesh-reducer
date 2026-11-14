@@ -33,15 +33,46 @@ class RMesh:
 
     # ------------------------------------------------------------------ io
     @classmethod
-    def from_blender(cls, me, use_sharp=True):
+    def from_blender(cls, me, use_sharp=True, weld=False):
+        """weld: vertices at exactly the same position become one vertex.
+        Game exports (3ds Max FBX) often arrive split along every UV seam and
+        smoothing-group border: each UV island is then a separate open shell
+        and a reduction would tear the surface open along those borders.
+        Welded, the seams are ordinary UV seams / hard edges again (per-corner
+        UVs and the split normals are kept, see `sharp`).  self.weld_map maps
+        source vertex index -> vertex index here (None when nothing was welded)."""
         m = cls()
         nv = len(me.vertices)
         pos = np.empty(nv * 3, dtype=np.float32)
         me.vertices.foreach_get('co', pos)
-        m.pos = pos.reshape(nv, 3).astype(np.float64)
+        pos = pos.reshape(nv, 3)
         nl = len(me.loops)
         lv = np.empty(nl, dtype=np.int32)
         me.loops.foreach_get('vertex_index', lv)
+        m.weld_map = None
+        if weld and nv:
+            _u, first, inv = np.unique(pos, axis=0, return_index=True, return_inverse=True)
+            inv = np.asarray(inv).reshape(-1)
+            if len(first) < nv:
+                # keep the first occurrence order so indices stay stable
+                order = np.argsort(first)
+                rank = np.empty(len(first), dtype=np.int64)
+                rank[order] = np.arange(len(first))
+                wmap = rank[inv]
+                lv2 = wmap[lv]
+                # a polygon must not use a welded vertex twice
+                ok = True
+                for p in me.polygons:
+                    c = lv2[p.loop_start:p.loop_start + p.loop_total]
+                    if len(set(c.tolist())) != p.loop_total:
+                        ok = False
+                        break
+                if ok:
+                    pos = pos[first[order]]
+                    lv = lv2.astype(np.int32)
+                    nv = len(pos)
+                    m.weld_map = wmap
+        m.pos = pos.astype(np.float64)
         uvs = []
         for layer in me.uv_layers:
             a = np.empty(nl * 2, dtype=np.float32)
@@ -66,6 +97,9 @@ class RMesh:
             for v in vs:
                 m.vf[v].add(fid)
         m.alive_faces = len(m.faces)
+        mi = np.empty(len(me.polygons), dtype=np.int32)
+        me.polygons.foreach_get('material_index', mi)
+        m.fmat = mi.tolist()           # fid -> material index
         # shading style / sharp edges from split normals
         nsharp = 0
         nint = 0

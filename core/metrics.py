@@ -27,6 +27,7 @@ class TriMesh:
         self.tri_poly = np.array([t[0].face.index for t in tris], dtype=np.int64)
         self.tri_uv = [np.array([[l[u].uv[:] for l in t] for t in tris], dtype=np.float64).reshape(-1, 3, 2) for u in uvl]
         self.poly_normal = np.array([f.normal[:] for f in bm.faces], dtype=np.float64).reshape(-1, 3)
+        self.poly_mat = np.array([f.material_index for f in bm.faces], dtype=np.int64)
         self.bm = bm
         p = self.pos[self.tri]
         self.tri_area = 0.5 * np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1)
@@ -421,9 +422,28 @@ def evaluate(orig_me, res_me, texture=None, regions=None, n_samples=40000, seed=
         }
         if k == 0 and texture:
             try:
-                img = load_image(texture)
-                ca = sample_tex(img, uva)
-                cb = sample_tex(img, uvb)
+                if isinstance(texture, dict):
+                    # {material index: image path}: every sample uses the image of its own material
+                    ma = A.poly_mat[A.tri_poly[tqb]]
+                    mb = B.poly_mat[B.tri_poly[tb]]
+                    ca = np.zeros((len(uva), 3))
+                    cb = np.zeros((len(uvb), 3))
+                    have = np.zeros(len(uva), dtype=bool)
+                    for mi_, path_ in texture.items():
+                        if not path_:
+                            continue
+                        img = load_image(path_)
+                        sa_m = ma == int(mi_)
+                        sb_m = mb == int(mi_)
+                        ca[sa_m] = sample_tex(img, uva[sa_m])
+                        cb[sb_m] = sample_tex(img, uvb[sb_m])
+                        have |= sb_m
+                    ca, cb = ca[have], cb[have]
+                    uvres[name]['texture_samples_other_material_pct'] = round(100 * float((ma != mb).mean()), 3)
+                else:
+                    img = load_image(texture)
+                    ca = sample_tex(img, uva)
+                    cb = sample_tex(img, uvb)
                 err = np.abs(ca - cb).mean(1) * 255
                 # noise floor: the original against itself with the same spatial jitter
                 uvres[name]['texture_error_mean_0_255'] = round(float(err.mean()), 3)
