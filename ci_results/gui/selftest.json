@@ -1,0 +1,44 @@
+{
+ "ok": true,
+ "font": "Microsoft YaHei UI",
+ "blender": "C:\\blender\\blender-5.2.4-windows-x64\\blender.exe",
+ "blender_version": "5.2.4",
+ "inputs": [
+  "C:\\测试 目录\\吉尔_High.fbx"
+ ],
+ "started": true,
+ "status": "done",
+ "error": "",
+ "seconds": 28.4,
+ "output": "D:\\a\\mesh-reducer\\mesh-reducer\\ci_results\\gui\\吉尔_High_reduced.fbx",
+ "output_exists": true,
+ "summary": {
+  "faces": 1499,
+  "quads": 1309,
+  "tris": 190,
+  "ngons": 0,
+  "unity_tris": 2808,
+  "quad_pct": 87.32,
+  "hausdorff_pct": 0.8484,
+  "mean_pct": 0.0673,
+  "normal_dev_deg": 5.177,
+  "flipped": 0,
+  "nonmanifold": 0,
+  "degenerate": 0,
+  "uv_islands": "99/99",
+  "uv_flipped": 0,
+  "tex_err": 1.877,
+  "quad_rings": "149/197"
+ },
+ "renders": [
+  "D:\\a\\mesh-reducer\\mesh-reducer\\ci_results\\gui\\previews\\吉尔_High_reduced_front_back.png",
+  "D:\\a\\mesh-reducer\\mesh-reducer\\ci_results\\gui\\previews\\吉尔_High_reduced_side_34.png"
+ ],
+ "render_error": null,
+ "finished": true,
+ "table_status": "完成",
+ "metric_faces_cell": "1499",
+ "preview_shown": true,
+ "screenshot": "D:\\a\\mesh-reducer\\mesh-reducer\\ci_results\\gui\\gui.png",
+ "screenshot_saved": true
+}

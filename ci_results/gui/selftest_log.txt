@@ -1,0 +1,58 @@
+> C:\blender\blender-5.2.4-windows-x64\blender.exe -b --factory-startup --python-exit-code 1 --python D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py -- --in "C:\测试 目录\吉尔_High.fbx" --out D:\a\mesh-reducer\mesh-reducer\ci_results\gui\吉尔_High_reduced.fbx --mode character --symmetry auto --report D:\a\mesh-reducer\mesh-reducer\ci_results\gui\吉尔_High_reduced_report.json --prop-method strict --faces 1500
+D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py:86: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  if not mat or not mat.use_nodes:
+WARNING: material link b'3dsMax|Parameters|base_color_map' ignored
+LOG texture: C:\测试 目录\Hero_006_JiEr_Diffuse.png
+FBX export starting... 'D:\\a\\mesh-reducer\\mesh-reducer\\ci_results\\gui\\吉尔_High_reduced.fbx'
+export finished in 0.0099 sec.
+RESULT (4433 bytes)
+Blender 5.2.4 LTS (hash cd5dc428cce1 built 2026-11-10 01:34:34)
+> C:\blender\blender-5.2.4-windows-x64\blender.exe -b --factory-startup --python-exit-code 1 --python D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py -- --render-only --orig "C:\测试 目录\吉尔_High.fbx" --result D:\a\mesh-reducer\mesh-reducer\ci_results\gui\吉尔_High_reduced.fbx --renders D:\a\mesh-reducer\mesh-reducer\ci_results\gui\previews --engine auto --report D:\a\mesh-reducer\mesh-reducer\ci_results\gui\吉尔_High_reduced_report_renders.json
+D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py:86: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  if not mat or not mat.use_nodes:
+Warning! Using result of ChoosePixelFormat.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Warning! Using result of ChoosePixelFormat.
+Warning! Using result of ChoosePixelFormat.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Warning! Using result of ChoosePixelFormat.
+Warning! Using result of ChoosePixelFormat.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Warning! Using result of ChoosePixelFormat.
+Warning! Using result of ChoosePixelFormat.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Implementation unexpectedly missing WGL_ARB_extensions_string.  Probably a libepoxy bug.
+Warning! Using result of ChoosePixelFormat.
+Error   : EXCEPTION_ACCESS_VIOLATION
+Address : 0x00007FF770E40BF0
+Module  : blender.exe
+Thread  : 00001e7c
+Blender 5.2.4 LTS (hash cd5dc428cce1 built 2026-11-10 01:34:34)
+Writing: C:\Users\RUNNER~1\AppData\Local\Temp\blender.crash.txt
+预览渲染失败，改用 Cycles(CPU) 重试…
+> C:\blender\blender-5.2.4-windows-x64\blender.exe -b --factory-startup --python-exit-code 1 --python D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py -- --render-only --orig "C:\测试 目录\吉尔_High.fbx" --result D:\a\mesh-reducer\mesh-reducer\ci_results\gui\吉尔_High_reduced.fbx --renders D:\a\mesh-reducer\mesh-reducer\ci_results\gui\previews --engine cycles --report D:\a\mesh-reducer\mesh-reducer\ci_results\gui\吉尔_High_reduced_report_renders.json
+D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py:86: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  if not mat or not mat.use_nodes:
+00:02.125  render           | Saved: 'C:\Users\RUNNER~1\AppData\Local\Temp\tmpf_lql7mg\v.png'
+00:03.453  render           | Saved: 'C:\Users\RUNNER~1\AppData\Local\Temp\tmpf_lql7mg\v.png'
+00:04.672  render           | Saved: 'C:\Users\RUNNER~1\AppData\Local\Temp\tmpf_lql7mg\v.png'
+00:05.985  render           | Saved: 'C:\Users\RUNNER~1\AppData\Local\Temp\tmpf_lql7mg\v.png'
+00:07.063  render           | Saved: 'C:\Users\RUNNER~1\AppData\Local\Temp\tmp_7tjue_r\v.png'
+00:08.032  render           | Saved: 'C:\Users\RUNNER~1\AppData\Local\Temp\tmp_7tjue_r\v.png'
+00:09.188  render           | Saved: 'C:\Users\RUNNER~1\AppData\Local\Temp\tmp_7tjue_r\v.png'
+00:10.266  render           | Saved: 'C:\Users\RUNNER~1\AppData\Local\Temp\tmp_7tjue_r\v.png'
+WARNING: material link b'3dsMax|Parameters|base_color_map' ignored
+RESULT (256 bytes)
+Blender 5.2.4 LTS (hash cd5dc428cce1 built 2026-11-10 01:34:34)
+SELFTEST {"ok": true, "font": "Microsoft YaHei UI", "blender": "C:\\blender\\blender-5.2.4-windows-x64\\blender.exe", "blender_version": "5.2.4", "inputs": ["C:\\测试 目录\\吉尔_High.fbx"], "started": true, "status": "done", "error": "", "seconds": 28.4, "output": "D:\\a\\mesh-reducer\\mesh-reducer\\ci_results\\gui\\吉尔_High_reduced.fbx", "output_exists": true, "summary": {"faces": 1499, "quads": 1309, "tris": 190, "ngons": 0, "unity_tris": 2808, "quad_pct": 87.32, "hausdorff_pct": 0.8484, "mean_pct": 0.0673, "normal_dev_deg": 5.177, "flipped": 0, "nonmanifold": 0, "degenerate": 0, "uv_islands": "99/99", "uv_flipped": 0, "tex_err": 1.877, "quad_rings": "149/197"}, "renders": ["D:\\a\\mesh-reducer\\mesh-reducer\\ci_results\\gui\\previews\\吉尔_High_reduced_front_back.png", "D:\\a\\mesh-reducer\\mesh-reducer\\ci_results\\gui\\previews\\吉尔_High_reduced_side_34.png"], "render_error": null, "finished": true, "table_status": "完成", "metric_faces_cell": "1499", "preview_shown": true, "screenshot": "D:\\a\\mesh-reducer\\mesh-reducer\\ci_results\\gui\\gui.png", "screenshot_saved": true}

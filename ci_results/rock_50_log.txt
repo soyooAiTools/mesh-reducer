@@ -1,0 +1,27 @@
+Blender 5.2.4 at C:\blender\blender-5.2.4-windows-x64\blender.exe
+[  0%] queued 
+> C:\blender\blender-5.2.4-windows-x64\blender.exe -b --factory-startup --python-exit-code 1 --python D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py -- --in "C:\测试 目录\石头1.fbx" --out "C:\测试 目录\输出\石头1_50.fbx" --mode prop --symmetry auto --report D:\a\mesh-reducer\mesh-reducer\ci_results\rock_50.json --prop-method strict --faces 3714
+D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py:86: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  if not mat or not mat.use_nodes:
+LOG texture: C:\测试 目录\Hero_006_JiEr_Diffuse.png
+[  5%] running SM_Ground_Cliff_02: analysing mesh
+[ 13%] running SM_Ground_Cliff_02: collapsing edges
+[ 19%] running SM_Ground_Cliff_02: collapsing edges
+[ 24%] running SM_Ground_Cliff_02: collapsing edges
+[ 30%] running SM_Ground_Cliff_02: collapsing edges
+[ 36%] running SM_Ground_Cliff_02: collapsing edges
+[ 41%] running SM_Ground_Cliff_02: collapsing edges
+[ 47%] running SM_Ground_Cliff_02: collapsing edges
+[ 53%] running SM_Ground_Cliff_02: collapsing edges
+[ 58%] running SM_Ground_Cliff_02: collapsing edges
+[ 61%] running SM_Ground_Cliff_02: fitting to original surface
+[ 72%] running SM_Ground_Cliff_02: done
+FBX export starting... 'C:\\测试 目录\\输出\\石头1_50.fbx'
+export finished in 0.0146 sec.
+[ 77%] running measuring result
+[ 90%] running done
+RESULT (3642 bytes)
+Blender 5.2.4 LTS (hash cd5dc428cce1 built 2026-11-10 01:34:34)
+[100%] done done
+OK 7428 -> 3714 faces, 15.6 s
+SUMMARY {"faces": 3714, "quads": 0, "tris": 3714, "ngons": 0, "unity_tris": 3714, "quad_pct": 0.0, "hausdorff_pct": 0.5436, "mean_pct": 0.0356, "normal_dev_deg": 5.674, "flipped": 0, "nonmanifold": 0, "degenerate": 0, "uv_islands": "23/23", "uv_flipped": 0, "tex_err": 0.607, "quad_rings": "0/0"}

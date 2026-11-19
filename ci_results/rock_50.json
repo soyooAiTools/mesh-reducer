@@ -1,0 +1,180 @@
+{
+ "ok": true,
+ "input": "C:\\测试 目录\\石头1.fbx",
+ "output": "C:\\测试 目录\\输出\\石头1_50.fbx",
+ "faces_before": 7428,
+ "faces_after": 3714,
+ "objects": [
+  {
+   "mode": "prop",
+   "method": "STRICT",
+   "faces_before": 7428,
+   "faces_after": 3714,
+   "quads": 0,
+   "tris": 3714,
+   "ngons": 0,
+   "target": 3714,
+   "stuck": false,
+   "uv_faces_flipped_vs_source": 0,
+   "seconds": 13.38,
+   "object": "SM_Ground_Cliff_02"
+  }
+ ],
+ "renders": [],
+ "blender": "5.2.4 LTS",
+ "texture": "C:\\测试 目录\\Hero_006_JiEr_Diffuse.png",
+ "metrics": [
+  {
+   "bbox_diag": 554.3966039296699,
+   "original": {
+    "verts": 3714,
+    "faces": 7428,
+    "quads": 0,
+    "tris": 7428,
+    "ngons": 0,
+    "quad_pct": 0.0,
+    "tri_pct": 100.0,
+    "tris_after_triangulation": 7428,
+    "poles": 3263,
+    "pole_pct_of_interior_verts": 87.86,
+    "non_manifold_edges": 0,
+    "non_manifold_verts": 0,
+    "boundary_edges": 0,
+    "wire_edges": 0,
+    "loose_verts": 0,
+    "degenerate_faces": 0
+   },
+   "result": {
+    "verts": 1857,
+    "faces": 3714,
+    "quads": 0,
+    "tris": 3714,
+    "ngons": 0,
+    "quad_pct": 0.0,
+    "tri_pct": 100.0,
+    "tris_after_triangulation": 3714,
+    "poles": 1617,
+    "pole_pct_of_interior_verts": 87.08,
+    "non_manifold_edges": 0,
+    "non_manifold_verts": 0,
+    "boundary_edges": 0,
+    "wire_edges": 0,
+    "loose_verts": 0,
+    "degenerate_faces": 0
+   },
+   "face_ratio": 0.5,
+   "geometry": {
+    "hausdorff_orig_to_result_pct": 0.5436,
+    "hausdorff_result_to_orig_pct": 0.4957,
+    "hausdorff_pct": 0.5436,
+    "mean_dist_pct": 0.0356,
+    "rms_dist_pct": 0.0575,
+    "p99_dist_pct": 0.23
+   },
+   "parts_worst": [
+    {
+     "part": 0,
+     "center": [
+      28.38,
+      13.07,
+      -31.13
+     ],
+     "size": [
+      400.79,
+      284.32,
+      254.37
+     ],
+     "max_pct": 0.4958,
+     "mean_pct": 0.0345,
+     "max_rel_to_part_pct": 0.497
+    }
+   ],
+   "normals": {
+    "mean_deviation_deg": 5.674,
+    "p95_deviation_deg": 24.134,
+    "samples_over_90deg_pct": 0.0,
+    "flipped_faces": 0,
+    "inconsistent_winding_edges": 0
+   },
+   "uv": {
+    "UVmap_0": {
+     "flipped_uv_faces_vs_original": 0,
+     "islands_original": 23,
+     "islands_result": 23,
+     "seam_edges_original": 688,
+     "seam_edges_result": 487,
+     "flipped_uv_faces_original": 1,
+     "flipped_uv_faces_result": 1,
+     "zero_area_uv_faces_original": 6,
+     "zero_area_uv_faces_result": 6,
+     "uv_shift_mean_pct_of_uv_extent": 0.0094,
+     "uv_shift_p90_pct_of_uv_extent": 0.0386,
+     "stretch_mean_log2": 0.032,
+     "stretch_p95_log2": 0.1224,
+     "stretch_max_log2": 1.6271,
+     "texture_error_mean_0_255": 0.607,
+     "texture_error_p95_0_255": 1.417,
+     "texture_samples_over_30_pct": 0.35
+    },
+    "UVmap_1": {
+     "flipped_uv_faces_vs_original": 0,
+     "islands_original": 23,
+     "islands_result": 23,
+     "seam_edges_original": 688,
+     "seam_edges_result": 487,
+     "flipped_uv_faces_original": 6,
+     "flipped_uv_faces_result": 6,
+     "zero_area_uv_faces_original": 0,
+     "zero_area_uv_faces_result": 0,
+     "uv_shift_mean_pct_of_uv_extent": 0.0094,
+     "uv_shift_p90_pct_of_uv_extent": 0.0379,
+     "stretch_mean_log2": 0.0325,
+     "stretch_p95_log2": 0.1253,
+     "stretch_max_log2": 1.811
+    },
+    "LightMapUV": {
+     "flipped_uv_faces_vs_original": 1,
+     "islands_original": 25,
+     "islands_result": 25,
+     "seam_edges_original": 697,
+     "seam_edges_result": 496,
+     "flipped_uv_faces_original": 3006,
+     "flipped_uv_faces_result": 1481,
+     "zero_area_uv_faces_original": 0,
+     "zero_area_uv_faces_result": 0,
+     "uv_shift_mean_pct_of_uv_extent": 0.0089,
+     "uv_shift_p90_pct_of_uv_extent": 0.0367,
+     "stretch_mean_log2": 0.0329,
+     "stretch_p95_log2": 0.1268,
+     "stretch_max_log2": 1.9284
+    }
+   },
+   "loops": {
+    "closed_loops_original": 0,
+    "closed_loops_result": 0,
+    "closed_quad_rings_original": 0,
+    "closed_quad_rings_result": 0
+   },
+   "object": "SM_Ground_Cliff_02"
+  }
+ ],
+ "summary": {
+  "faces": 3714,
+  "quads": 0,
+  "tris": 3714,
+  "ngons": 0,
+  "unity_tris": 3714,
+  "quad_pct": 0.0,
+  "hausdorff_pct": 0.5436,
+  "mean_pct": 0.0356,
+  "normal_dev_deg": 5.674,
+  "flipped": 0,
+  "nonmanifold": 0,
+  "degenerate": 0,
+  "uv_islands": "23/23",
+  "uv_flipped": 0,
+  "tex_err": 0.607,
+  "quad_rings": "0/0"
+ },
+ "seconds": 14.84
+}

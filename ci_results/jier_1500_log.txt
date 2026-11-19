@@ -1,0 +1,29 @@
+Blender 5.2.4 at C:\blender\blender-5.2.4-windows-x64\blender.exe
+[  0%] queued 
+> C:\blender\blender-5.2.4-windows-x64\blender.exe -b --factory-startup --python-exit-code 1 --python D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py -- --in "C:\测试 目录\吉尔_High.fbx" --out "C:\测试 目录\输出\吉尔_1500.fbx" --mode character --symmetry auto --report D:\a\mesh-reducer\mesh-reducer\ci_results\jier_1500.json --prop-method strict --faces 1500
+D:\a\mesh-reducer\mesh-reducer\dist\MeshReducer\_internal\runner.py:86: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  if not mat or not mat.use_nodes:
+WARNING: material link b'3dsMax|Parameters|base_color_map' ignored
+LOG texture: C:\测试 目录\Hero_006_JiEr_Diffuse.png
+[  5%] running Hero_006_JiEr: analysing mesh
+[ 12%] running Hero_006_JiEr: collapsing loops
+[ 17%] running Hero_006_JiEr: collapsing loops
+[ 21%] running Hero_006_JiEr: collapsing loops
+[ 26%] running Hero_006_JiEr: collapsing loops
+[ 30%] running Hero_006_JiEr: collapsing loops
+[ 35%] running Hero_006_JiEr: collapsing loops
+[ 41%] running Hero_006_JiEr: collapsing loops
+[ 45%] running Hero_006_JiEr: collapsing loops
+[ 50%] running Hero_006_JiEr: collapsing loops
+[ 55%] running Hero_006_JiEr: collapsing loops
+[ 61%] running Hero_006_JiEr: fitting to original surface
+[ 72%] running Hero_006_JiEr: done
+FBX export starting... 'C:\\测试 目录\\输出\\吉尔_1500.fbx'
+export finished in 0.0101 sec.
+[ 77%] running measuring result
+[ 90%] running done
+RESULT (4388 bytes)
+Blender 5.2.4 LTS (hash cd5dc428cce1 built 2026-11-10 01:34:34)
+[100%] done done
+OK 2639 -> 1499 faces, 17.1 s
+SUMMARY {"faces": 1499, "quads": 1309, "tris": 190, "ngons": 0, "unity_tris": 2808, "quad_pct": 87.32, "hausdorff_pct": 0.8484, "mean_pct": 0.0673, "normal_dev_deg": 5.177, "flipped": 0, "nonmanifold": 0, "degenerate": 0, "uv_islands": "99/99", "uv_flipped": 0, "tex_err": 1.877, "quad_rings": "149/197"}

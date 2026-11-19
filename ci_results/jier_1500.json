@@ -1,0 +1,281 @@
+{
+ "ok": true,
+ "input": "C:\\测试 目录\\吉尔_High.fbx",
+ "output": "C:\\测试 目录\\输出\\吉尔_1500.fbx",
+ "faces_before": 2639,
+ "faces_after": 1499,
+ "objects": [
+  {
+   "mode": "character",
+   "faces_flipped_vs_source": 0,
+   "uv_faces_flipped_vs_source": 0,
+   "faces_before": 2639,
+   "faces_after": 1499,
+   "quads": 1309,
+   "tris": 190,
+   "ngons": 0,
+   "target": 1500,
+   "stuck": false,
+   "faces_after_loops": 1499,
+   "triangle_budget_relaxed": 0,
+   "texture_aware": false,
+   "symmetry_axis": "X",
+   "operations": 132,
+   "seconds": 12.55,
+   "object": "Hero_006_JiEr"
+  }
+ ],
+ "renders": [],
+ "blender": "5.2.4 LTS",
+ "texture": "C:\\测试 目录\\Hero_006_JiEr_Diffuse.png",
+ "metrics": [
+  {
+   "bbox_diag": 182.39852282038098,
+   "original": {
+    "verts": 2490,
+    "faces": 2639,
+    "quads": 2113,
+    "tris": 526,
+    "ngons": 0,
+    "quad_pct": 80.07,
+    "tri_pct": 19.93,
+    "tris_after_triangulation": 4752,
+    "poles": 421,
+    "pole_pct_of_interior_verts": 18.1,
+    "non_manifold_edges": 0,
+    "non_manifold_verts": 0,
+    "boundary_edges": 164,
+    "wire_edges": 0,
+    "loose_verts": 0,
+    "degenerate_faces": 0
+   },
+   "result": {
+    "verts": 1516,
+    "faces": 1499,
+    "quads": 1309,
+    "tris": 190,
+    "ngons": 0,
+    "quad_pct": 87.32,
+    "tri_pct": 12.68,
+    "tris_after_triangulation": 2808,
+    "poles": 287,
+    "pole_pct_of_interior_verts": 21.17,
+    "non_manifold_edges": 0,
+    "non_manifold_verts": 0,
+    "boundary_edges": 160,
+    "wire_edges": 0,
+    "loose_verts": 0,
+    "degenerate_faces": 0
+   },
+   "face_ratio": 0.568,
+   "geometry": {
+    "hausdorff_orig_to_result_pct": 0.8484,
+    "hausdorff_result_to_orig_pct": 0.7006,
+    "hausdorff_pct": 0.8484,
+    "mean_dist_pct": 0.0673,
+    "rms_dist_pct": 0.1191,
+    "p99_dist_pct": 0.4534
+   },
+   "parts_worst": [
+    {
+     "part": 16,
+     "center": [
+      11.8,
+      -4.94,
+      62.67
+     ],
+     "size": [
+      6.24,
+      7.21,
+      4.86
+     ],
+     "max_pct": 0.5003,
+     "mean_pct": 0.1156,
+     "max_rel_to_part_pct": 8.528
+    },
+    {
+     "part": 15,
+     "center": [
+      12.55,
+      -4.46,
+      58.77
+     ],
+     "size": [
+      8.04,
+      7.65,
+      9.68
+     ],
+     "max_pct": 0.3825,
+     "mean_pct": 0.111,
+     "max_rel_to_part_pct": 4.738
+    },
+    {
+     "part": 19,
+     "center": [
+      -6.0,
+      -7.96,
+      55.31
+     ],
+     "size": [
+      2.39,
+      1.54,
+      5.63
+     ],
+     "max_pct": 0.1335,
+     "mean_pct": 0.027,
+     "max_rel_to_part_pct": 3.864
+    },
+    {
+     "part": 13,
+     "center": [
+      -18.72,
+      -4.69,
+      46.86
+     ],
+     "size": [
+      5.64,
+      9.39,
+      13.05
+     ],
+     "max_pct": 0.3524,
+     "mean_pct": 0.0399,
+     "max_rel_to_part_pct": 3.771
+    },
+    {
+     "part": 2,
+     "center": [
+      9.7,
+      -0.17,
+      10.56
+     ],
+     "size": [
+      13.73,
+      27.51,
+      26.12
+     ],
+     "max_pct": 0.7501,
+     "mean_pct": 0.1307,
+     "max_rel_to_part_pct": 3.392
+    },
+    {
+     "part": 24,
+     "center": [
+      25.22,
+      8.11,
+      115.83
+     ],
+     "size": [
+      17.4,
+      19.94,
+      42.7
+     ],
+     "max_pct": 0.7894,
+     "mean_pct": 0.1087,
+     "max_rel_to_part_pct": 2.866
+    },
+    {
+     "part": 5,
+     "center": [
+      -9.52,
+      -0.37,
+      10.54
+     ],
+     "size": [
+      13.79,
+      27.19,
+      26.12
+     ],
+     "max_pct": 0.6137,
+     "mean_pct": 0.1315,
+     "max_rel_to_part_pct": 2.788
+    },
+    {
+     "part": 26,
+     "center": [
+      -25.12,
+      3.57,
+      107.96
+     ],
+     "size": [
+      11.48,
+      16.05,
+      32.05
+     ],
+     "max_pct": 0.5532,
+     "mean_pct": 0.1013,
+     "max_rel_to_part_pct": 2.681
+    }
+   ],
+   "normals": {
+    "mean_deviation_deg": 5.177,
+    "p95_deviation_deg": 21.704,
+    "samples_over_90deg_pct": 0.025,
+    "flipped_faces": 0,
+    "inconsistent_winding_edges": 0
+   },
+   "uv": {
+    "UVChannel_1": {
+     "flipped_uv_faces_vs_original": 0,
+     "islands_original": 99,
+     "islands_result": 99,
+     "seam_edges_original": 874,
+     "seam_edges_result": 665,
+     "flipped_uv_faces_original": 467,
+     "flipped_uv_faces_result": 234,
+     "zero_area_uv_faces_original": 0,
+     "zero_area_uv_faces_result": 0,
+     "uv_shift_mean_pct_of_uv_extent": 0.0074,
+     "uv_shift_p90_pct_of_uv_extent": 0.0972,
+     "stretch_mean_log2": 0.048,
+     "stretch_p95_log2": 0.1512,
+     "stretch_max_log2": 2.8234,
+     "texture_error_mean_0_255": 1.877,
+     "texture_error_p95_0_255": 4.315,
+     "texture_samples_over_30_pct": 1.758
+    },
+    "UVChannel_2": {
+     "flipped_uv_faces_vs_original": 29,
+     "islands_original": 97,
+     "islands_result": 102,
+     "seam_edges_original": 525,
+     "seam_edges_result": 455,
+     "flipped_uv_faces_original": 1100,
+     "flipped_uv_faces_result": 656,
+     "zero_area_uv_faces_original": 430,
+     "zero_area_uv_faces_result": 172,
+     "uv_shift_mean_pct_of_uv_extent": 0.0019,
+     "uv_shift_p90_pct_of_uv_extent": 0.1848,
+     "stretch_mean_log2": 0.2967,
+     "stretch_p95_log2": 1.1379,
+     "stretch_max_log2": 12.4275
+    }
+   },
+   "loops": {
+    "closed_loops_original": 162,
+    "closed_loops_result": 100,
+    "closed_quad_rings_original": 197,
+    "closed_quad_rings_result": 149
+   },
+   "object": "Hero_006_JiEr"
+  }
+ ],
+ "summary": {
+  "faces": 1499,
+  "quads": 1309,
+  "tris": 190,
+  "ngons": 0,
+  "unity_tris": 2808,
+  "quad_pct": 87.32,
+  "hausdorff_pct": 0.8484,
+  "mean_pct": 0.0673,
+  "normal_dev_deg": 5.177,
+  "flipped": 0,
+  "nonmanifold": 0,
+  "degenerate": 0,
+  "uv_islands": "99/99",
+  "uv_flipped": 0,
+  "tex_err": 1.877,
+  "quad_rings": "149/197"
+ },
+ "seconds": 14.24
+}
