@@ -45,7 +45,7 @@ def parse_args(argv):
     ap.add_argument('--out', dest='out', help='output model (format from the extension)')
     ap.add_argument('--faces', type=int, default=0, help='target polygon count (all meshes of the file together)')
     ap.add_argument('--ratio', type=float, default=0.0, help='target ratio 0..1 (used when --faces is not given)')
-    ap.add_argument('--mode', default='character', choices=['character', 'prop', 'auto'])
+    ap.add_argument('--mode', default='character', choices=['character', 'prop', 'auto', 'rejoin'])
     ap.add_argument('--symmetry', default='auto', help='auto | x | y | z | none')
     ap.add_argument('--protect-group', default='', help='vertex group whose weights protect loops')
     ap.add_argument('--no-seams', action='store_true', help='do not treat UV seams as constraints')
@@ -157,7 +157,7 @@ def main(argv=None):
     t0 = time.time()
     try:
         import bpy
-        from core import io_util, api, prop, metrics
+        from core import io_util, api, prop, metrics, auto
     except Exception as ex:
         emit('ERROR', 'cannot import Blender python API: %s' % ex)
         return 1
@@ -210,6 +210,9 @@ def main(argv=None):
         results = []
         pairs = []
         done = 0
+        auto_modes = {}
+        if args.mode == 'auto':
+            auto_modes = {st['object']: st['mode'] for st in auto.probe(objs)['objects']}
         for o in objs:
             n = len(o.data.polygons)
             share = n / total
@@ -220,8 +223,9 @@ def main(argv=None):
             tgt = max(4, int(round(n * ratio))) if len(objs) > 1 else (args.faces if args.faces > 0 else max(4, int(round(n * ratio))))
             mode = args.mode
             if mode == 'auto':
-                quads = sum(1 for p in o.data.polygons if p.loop_total == 4)
-                mode = 'character' if quads > 0.3 * n else 'prop'
+                # quad grid (native or recoverable) -> loop removal, triangle soup -> prop; see core/auto.py
+                mode = auto_modes[o.name]
+                emit('LOG', '%s: auto mode -> %s' % (o.name, mode))
             if tgt >= n:
                 emit('LOG', '%s: target %d >= %d faces, copied unchanged' % (o.name, tgt, n))
                 new = o.copy()
@@ -229,6 +233,9 @@ def main(argv=None):
                 for c in (list(o.users_collection) or [bpy.context.scene.collection]):
                     c.objects.link(new)
                 info = {'mode': mode, 'faces_before': n, 'faces_after': n, 'target': tgt, 'unchanged': True}
+            elif mode == 'rejoin':
+                # triangulated quad mesh: weld, put the quads back together, remove loops
+                new, info = auto.reduce_object(o, tgt / n, 'rejoin', symmetry=sym, progress=cb)
             elif mode == 'character':
                 new, info = api.reduce_character(
                     o, target_faces=tgt, symmetry=sym, protect_group=args.protect_group or None,

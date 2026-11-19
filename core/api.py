@@ -17,6 +17,29 @@ def _link_like(new, src):
     new.matrix_world = src.matrix_world.copy()
 
 
+class rest_pose:
+    """Context manager: every armature in its rest position.  The data transfer modifier
+    reads the EVALUATED source; in a file that carries an animation the source stands in
+    the pose of the current frame while the new mesh is in the bind pose, so weights and
+    normals would be taken from the wrong places (43% of the normals pointed into the
+    surface on a model exported with its walk cycle)."""
+
+    def __enter__(self):
+        self.saved = {a.name: a.pose_position for a in bpy.data.armatures}
+        for a in bpy.data.armatures:
+            a.pose_position = 'REST'
+        bpy.context.view_layer.update()
+        return self
+
+    def __exit__(self, *exc):
+        for n, p in self.saved.items():
+            a = bpy.data.armatures.get(n)
+            if a is not None:
+                a.pose_position = p
+        bpy.context.view_layer.update()
+        return False
+
+
 def _transfer_extras(src, new, flat):
     """vertex groups (skin weights), armature modifiers, custom normals."""
     me = new.data
@@ -40,7 +63,7 @@ def _transfer_extras(src, new, flat):
             mod.data_types_loops = {'CUSTOM_NORMAL'}
             mod.loop_mapping = 'POLYINTERP_NEAREST'
         ctx = bpy.context
-        with ctx.temp_override(object=new, active_object=new, selected_objects=[new]):
+        with rest_pose(), ctx.temp_override(object=new, active_object=new, selected_objects=[new]):
             try:
                 bpy.ops.object.modifier_apply(modifier=mod.name)
             except Exception as ex:           # keep going, extras are optional
@@ -82,8 +105,12 @@ def limit_skin_weights(obj, limit=4):
 def reduce_character(obj, target_faces=None, ratio=0.5, symmetry='AUTO', protect_group=None,
                      preserve_seams=True, preserve_sharp=True, auto_joints=True,
                      protect_strength=4.0, joint_strength=5.0, do_fit=True, progress=None, name=None,
-                     texture=None, **extra):
-    """Quad/loop preserving reduction of a mesh object. Returns (new_obj, info)."""
+                     texture=None, finish_edges=False, **extra):
+    """Quad/loop preserving reduction of a mesh object. Returns (new_obj, info).
+    finish_edges: when the loops are used up above the target (info['stuck']), go on with
+    single edge collapses (same seam / flip safeguards).  That reaches lower counts on
+    game-ready low poly meshes but turns the quads it touches into triangles, which is
+    what the artists rejected: off by default, the result reports 'stuck' instead."""
     t0 = time.time()
     me = obj.data
     mesh = RMesh.from_blender(me, use_sharp=preserve_sharp)
@@ -117,6 +144,9 @@ def reduce_character(obj, target_faces=None, ratio=0.5, symmetry='AUTO', protect
         user_progress(0.02, 'analysing mesh')
     red = character.Reducer(mesh, params)
     red.run()
+    loops_end = mesh.alive_faces
+    if finish_edges and red.stuck and mesh.alive_faces > 1.05 * (params.target_faces or 0):
+        red.run_edges()
     if user_progress:
         user_progress(0.85, 'fitting to original surface')
     if do_fit:
@@ -129,7 +159,8 @@ def reduce_character(obj, target_faces=None, ratio=0.5, symmetry='AUTO', protect
     nflip, uvflip = red.self_check()
     info = {'mode': 'character', 'faces_flipped_vs_source': nflip, 'uv_faces_flipped_vs_source': uvflip, 'faces_before': len(me.polygons), 'faces_after': q + t + o,
             'quads': q, 'tris': t, 'ngons': o, 'target': params.target_faces or int(round(len(me.polygons) * ratio)),
-            'stuck': bool(red.stuck), 'texture_aware': tex is not None, 'symmetry_axis': None if red.sym_axis is None else 'XYZ'[red.sym_axis],
+            'stuck': bool(red.stuck), 'faces_after_loops': loops_end, 'triangle_budget_relaxed': getattr(red, 'n_tri_relax', 0),
+            'texture_aware': tex is not None, 'symmetry_axis': None if red.sym_axis is None else 'XYZ'[red.sym_axis],
             'operations': len(red.log), 'seconds': round(time.time() - t0, 2)}
     if user_progress:
         user_progress(1.0, 'done')

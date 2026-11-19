@@ -340,7 +340,8 @@ def _reduce_prop_blender(obj, target_faces=None, ratio=0.5, symmetry='NONE', pre
         mod.use_loop_data = True
         mod.data_types_loops = {'CUSTOM_NORMAL'}
         mod.loop_mapping = 'POLYINTERP_NEAREST'
-        with bpy.context.temp_override(object=new, active_object=new, selected_objects=[new]):
+        from .api import rest_pose
+        with rest_pose(), bpy.context.temp_override(object=new, active_object=new, selected_objects=[new]):
             try:
                 bpy.ops.object.modifier_apply(modifier=mod.name)
             except Exception as ex:

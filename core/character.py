@@ -76,6 +76,12 @@ class Params:
                                        # again (artist-made "1 column -> 2 columns" fans degrade into such split quads
                                        # once the doubled columns are gone).  Triangles no collapse touched are left alone
         self.heal_angle = 20.0         # max angle (degrees) between the two triangles of a split quad
+        self.stuck_relax_tris = False  # partial collapses may only add triangles up to the triangle share of the source
+                                       # (max_tri_ratio).  True: when NOTHING else is left (every whole loop used up or
+                                       # blocked: game-ready low poly meshes at 25-50%) that budget is raised step by
+                                       # step instead of stopping.  Measured on the validation set: gets only 5-8 points
+                                       # closer to the target (the rest is blocked by ring / joint guards and flips) and
+                                       # costs quads (范海辛 character 79% -> 74% quads), so it is off
         self.relax_seams = False       # edge-collapse (prop) mode only.  False: UV seams are hard constraints.
                                        # True: a collapse that breaks a seam rule (moves a seam vertex off its seam,
                                        # merges two seams, moves a seam corner) is allowed but pays for the texture
@@ -1603,6 +1609,8 @@ class Reducer:
         warp_cap = p.max_warp
         self.last_warp = 0.0
         capped = set()
+        tri_blocked = set()
+        self.n_tri_relax = 0
         self.last_rel = 0.0
         while m.alive_faces > target and not finished:
             it += 1
@@ -1686,6 +1694,12 @@ class Reducer:
                     warp_cap *= 1.25
                     capped.clear()
                     continue
+                if p.stuck_relax_tris and tri_blocked and self.max_tris_frac < 1.0:
+                    self.max_tris_frac = min(1.0, self.max_tris_frac * 1.5 + 0.05)
+                    self.blocked -= tri_blocked
+                    tri_blocked.clear()
+                    self.n_tri_relax += 1
+                    continue
                 stuck = True
                 break
             ops.sort(key=lambda o: o[0])
@@ -1711,6 +1725,8 @@ class Reducer:
                 rem, nt, guarded = self.op_stats(out)
                 if nt and (guarded or (self.n_tris + nt) > self.max_tris_frac * (m.alive_faces - rem)):
                     self.blocked.add(fk)      # triangle budget / would break a ring
+                    if not guarded:
+                        tri_blocked.add(fk)
                     continue
                 tri_before = self._count_tris_around(out)
                 u = self.apply_op(out, sym, acc)

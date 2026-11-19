@@ -84,9 +84,10 @@ class _null_bones_as_bones:
         self.mod = None
 
     def __enter__(self):
-        if not self.uuids:
+        try:
+            from io_scene_fbx import import_fbx
+        except Exception:
             return self
-        from io_scene_fbx import import_fbx
         uuids = self.uuids
         base = import_fbx.FbxImportHelperNode
 
@@ -97,6 +98,16 @@ class _null_bones_as_bones:
                 if fbx_elem is not None and not is_bone and fbx_elem.id == b'Model' and fbx_elem.props[0] in uuids:
                     is_bone = True
                 super().__init__(fbx_elem, bl_data, fbx_transform_data, is_bone)
+
+            def find_fake_bones(self, in_armature=False):
+                # Importer bug (KeyError in link_hierarchy, "mesh.armature_setup[self]"): a Null /
+                # Root node between bones (Max: "root" LimbNode -> "Bip001" Root -> bones) is turned
+                # into a bone only here, AFTER the bones were told which armature they belong
+                # to.  It and every bone below it keep armature None, their clusters register
+                # the mesh under None and the armature cannot find its mesh.  Tell them again.
+                super().find_fake_bones(in_armature)
+                if self.is_armature:
+                    self.find_armature_bones(self)
         Node.__name__ = base.__name__
         self.mod, self.base = import_fbx, base
         import_fbx.FbxImportHelperNode = Node
@@ -108,20 +119,62 @@ class _null_bones_as_bones:
         return False
 
 
+_BIN_CACHE = {}
+
+
+def binary_fbx(path):
+    """path of a binary FBX with the content of `path`: the file itself, or a
+    converted temporary copy when it is an ASCII FBX (see core.fbx_ascii)"""
+    from . import fbx_ascii
+    key = (os.path.abspath(path), os.path.getmtime(path))
+    if key in _BIN_CACHE and os.path.isfile(_BIN_CACHE[key]):
+        return _BIN_CACHE[key]
+    out = path
+    if fbx_ascii.is_ascii(path):
+        import tempfile
+        out = os.path.join(tempfile.mkdtemp(prefix='mr_fbx_'), os.path.basename(path))
+        fbx_ascii.to_binary(path, out)
+    _BIN_CACHE[key] = out
+    return out
+
+
+def _relink_images(folder, before):
+    """images the importer could not find (the converted temporary file lives elsewhere): look next to the real file"""
+    for img in bpy.data.images:
+        if img in before or img.packed_file is not None or not img.filepath:
+            continue
+        if os.path.isfile(bpy.path.abspath(img.filepath)):
+            continue
+        cand = os.path.join(folder, os.path.basename(img.filepath.replace('\\', '/')))
+        if os.path.isfile(cand):
+            img.filepath = cand
+
+
 def import_file(path):
     """Import a model file, return list of new mesh objects."""
     before = set(bpy.data.objects)
     ext = os.path.splitext(path)[1].lower()
     if ext == '.fbx':
-        with _null_bones_as_bones(path):
-            bpy.ops.import_scene.fbx(filepath=path)
+        real = binary_fbx(path)
+        imgs = set(bpy.data.images)
+        with _null_bones_as_bones(real):
+            bpy.ops.import_scene.fbx(filepath=real)
+        if real != path:
+            _relink_images(os.path.dirname(os.path.abspath(path)), imgs)
     elif ext == '.obj':
         bpy.ops.wm.obj_import(filepath=path)
     elif ext in ('.glb', '.gltf'):
         bpy.ops.import_scene.gltf(filepath=path)
     else:
         raise ValueError('unsupported file type: ' + ext)
-    return [o for o in bpy.data.objects if o not in before and o.type == 'MESH']
+    new = [o for o in bpy.data.objects if o not in before]
+    # work in the bind pose: a file exported with an animation arrives posed at its first
+    # frame, and everything that reads evaluated meshes (data transfer of weights / normals,
+    # Decimate, bakes, previews) would mix the posed source with the unposed result
+    for o in new:
+        if o.type == 'ARMATURE':
+            o.data.pose_position = 'REST'
+    return [o for o in new if o.type == 'MESH']
 
 
 def fbx_axes(path):
@@ -130,7 +183,7 @@ def fbx_axes(path):
         import addon_utils
         addon_utils.enable('io_scene_fbx', default_set=False)
         from io_scene_fbx import parse_fbx
-        root, _ver = parse_fbx.parse(path)
+        root, _ver = parse_fbx.parse(binary_fbx(path))
         gs = next(e for e in root.elems if e.id == b'GlobalSettings')
         pr = {p.props[0]: p.props[4] for p in next(e for e in gs.elems if e.id == b'Properties70').elems if len(p.props) > 4}
         up = ('-' if pr[b'UpAxisSign'] < 0 else '') + 'XYZ'[pr[b'UpAxis']]

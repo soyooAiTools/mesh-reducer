@@ -45,6 +45,21 @@ from . import api
 
 
 SRC_FACE = 'rt_src_face'
+# Every absolute length in this file (ray offsets, minimal cloth thickness, cage margins ...)
+# was tuned on a human sized character whose main part has a bounding box diagonal of
+# REF_DIAG metres.  They are all multiplied by UNIT = (diagonal of the model's main part) /
+# REF_DIAG, so an 18 cm ant and a 6 m dragon are treated like that character.  analyse()
+# sets it (set_unit); everything else is already relative to a part's bounding box.
+REF_DIAG = 2.661
+UNIT = 1.0
+
+
+def set_unit(diag):
+    global UNIT
+    UNIT = float(diag) / REF_DIAG if diag and diag > 0 else 1.0
+    return UNIT
+
+
 FOLD_ANGLE = 100.0       # degrees: sharper folds are hard edges and are split in the bake cage
 INNER_SHIFT = 16.0      # UV offset of the rebuilt inner cloth side (keeps its islands apart from the outer side)
 
@@ -92,10 +107,74 @@ def _strip_unused_materials(obj):
         p.material_index = i
 
 
-def weld(obj, rel=1e-6):
+def _split_nonmanifold(bm):
+    """Welding by position also glues sheets together that only touch: the front and the back
+    of a wing membrane along its rim, a fin standing on the body.  Edges with more than two
+    faces are opened again and only the faces that continue each other stay joined: around
+    the edge, faces with consistent winding are paired, flattest pair first; a face without
+    partner gets a border.  -> number of edges treated"""
+    nm = [e for e in bm.edges if len(e.link_faces) > 2]
+    if not nm:
+        return 0
+    plans = []
+    for e in nm:
+        a, b = e.verts[0].co.copy(), e.verts[1].co.copy()
+        axis = b - a
+        if axis.length < 1e-20:
+            continue
+        axis.normalize()
+        items = []
+        for l in e.link_loops:
+            f = l.face
+            d = f.calc_center_median() - a
+            d -= axis * d.dot(axis)
+            if d.length < 1e-20:
+                continue
+            items.append((f, d.normalized(), 1 if l.vert is e.verts[0] else -1))
+        cand = []
+        for i in range(len(items)):
+            for j in range(i + 1, len(items)):
+                if items[i][2] != items[j][2]:          # opposite loop direction = same surface orientation
+                    cand.append((items[i][1].dot(items[j][1]), i, j))
+        cand.sort()
+        used = set()
+        for _d, i, j in cand:                          # dot -1 = flat continuation first
+            if i in used or j in used:
+                continue
+            used.update((i, j))
+            plans.append((items[i][0], items[j][0], a, b))
+    bmesh.ops.split_edges(bm, edges=nm)
+    par = {}
+
+    def find(v):
+        while par.get(v, v) is not v:
+            v = par[v]
+        return v
+
+    def corner(f, p, tol):
+        return min(f.verts, key=lambda v: (v.co - p).length_squared) if any((v.co - p).length_squared <= tol for v in f.verts) else None
+    for fa, fb, a, b in plans:
+        if not fa.is_valid or not fb.is_valid:
+            continue
+        tol = 1e-12 * max(1.0, (b - a).length_squared)
+        for p in (a, b):
+            va, vb = corner(fa, p, tol), corner(fb, p, tol)
+            if va is None or vb is None:
+                continue
+            ra, rb = find(va), find(vb)
+            if ra is not rb:
+                par[ra] = rb
+    tm = {v: find(v) for v in list(par) if find(v) is not v}
+    if tm:
+        bmesh.ops.weld_verts(bm, targetmap=tm)
+    return len(nm)
+
+
+def weld(obj, rel=1e-6, manifold=False):
     """merge vertices at the same position (the FBX is split along every UV
     seam / smoothing group border).  Distance is relative to the bbox diagonal
-    and large enough to also remove the zero length edges QuadriFlow rejects."""
+    and large enough to also remove the zero length edges QuadriFlow rejects.
+    manifold: see _split_nonmanifold (the bake pipeline was tuned without it)."""
     me = obj.data
     co = np.array([v.co[:] for v in me.vertices])
     diag = float(np.linalg.norm(co.max(0) - co.min(0)))
@@ -105,6 +184,10 @@ def weld(obj, rel=1e-6):
     for f in bm.faces:
         f[lay] = f.index
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=diag * rel)
+    if manifold:
+        for _ in range(3):          # joining the pairs again can (rarely) close another fan
+            if not _split_nonmanifold(bm):
+                break
     bm.to_mesh(me)
     bm.free()
 
@@ -117,15 +200,33 @@ def source_faces(me):
     return out
 
 
-def join_quads(me, angle=60.0):
+def join_quads(me, angle=60.0, max_warp=None):
     """put the triangle pairs back together into the quads they were modelled
-    as (never across a UV seam or a material border: the UVs of the source are kept)"""
+    as (never across a UV seam or a material border: the UVs of the source are kept).
+    max_warp (mesh units): a joined quad whose two diagonals are further apart than this is
+    split again along the edge it had.  On a dense mesh a 60 degree fold between two small
+    triangles is nothing, on a 350 triangle model it is the shape: whoever triangulates the
+    quad the other way (engine, exporter) moves the surface by that distance
+    (lion: 1.5% of the diagonal before any loop was removed)."""
     bm = bmesh.new()
     bm.from_mesh(me)
     a = math.radians(angle)
+    had = None
+    if max_warp is not None:
+        had = {frozenset(e.verts) for e in bm.edges}
     bmesh.ops.join_triangles(bm, faces=bm.faces, cmp_seam=False, cmp_sharp=False, cmp_uvs=True,
                              cmp_vcols=False, cmp_materials=True,
                              angle_face_threshold=a, angle_shape_threshold=a)
+    if had is not None:
+        for f in [f for f in bm.faces if len(f.verts) == 4]:
+            v = f.verts
+            n = (v[2].co - v[0].co).cross(v[3].co - v[1].co)       # distance between the two diagonals
+            if n.length < 1e-30 or abs((v[1].co - v[0].co).dot(n)) / n.length <= max_warp:
+                continue
+            for i, j in ((0, 2), (1, 3)):
+                if frozenset((v[i], v[j])) in had:
+                    bmesh.utils.face_split(f, v[i], v[j])
+                    break
     bm.to_mesh(me)
     bm.free()
 
@@ -141,13 +242,138 @@ def material_is_alpha(mat):
 
 # ------------------------------------------------------- split + classify
 class Comp:
-    __slots__ = ('faces', 'mat', 'bones', 'top', 'area', 'lo', 'hi', 'pts', 'bvh', 'part', 'kind', 'host', 'near')
+    __slots__ = ('faces', 'mat', 'bones', 'top', 'area', 'lo', 'hi', 'pts', 'bvh', 'part', 'kind', 'host', 'near', 'bw')
 
 
-def analyse(obj, part_bones=None, relief_height=0.006, relief_cover=0.85, tiny_faces=30, bundle_min=4, shell_min_relief=8, relief_max_faces=400):
+def detect_parts(comps, obj, min_share=0.02, min_faces=40, weight_min=0.0, away=0.02, away_share=0.5, pair_tol=0.15, log=print):
+    """Held props (weapons, tools) found without bone names -> {part name: [bones]}.
+
+    Components are grouped by the bones they share (every bone with a weight counts: on
+    范海辛 a 2% threshold cut a trouser leg off the torso): the body is one big group because
+    neighbouring pieces share bones, a held prop is rigged to bones of its own.  A group
+    other than the biggest one is a part of its own when
+      * (groups that hang below its bones belong to it; if the body does, it is body)
+      * it has >= min_share of the faces (not the eyeballs)
+      * at least away_share of its area lies further than away * diagonal from the
+        rest of the model (held by a hand, not lying on the body like a buckle)
+      * it lies on one side of the skeleton's mirror plane and has no mirror twin
+        (shoulder pads, boots, a head rigid on its bone are body parts).
+    Two identical weapons, one per hand, are therefore NOT split off: use PART_BONES.
+    Parts are named part1, part2 ... ordered by the X of their centre (ascending)."""
+    arm = next((m.object for m in obj.modifiers if m.type == 'ARMATURE' and m.object), None)
+    if arm is None:
+        return {}
+    sig = []
+    for c in comps:
+        tot = sum(c.bw.values())
+        sig.append({b for b, w in c.bw.items() if w >= weight_min * tot and w > 0} if tot > 0 else set())
+    par = list(range(len(comps)))
+
+    def find(i):
+        while par[i] != i:
+            par[i] = par[par[i]]
+            i = par[i]
+        return i
+    owner = {}
+    for i, bs in enumerate(sig):
+        for b in bs:
+            if b in owner:
+                par[find(i)] = find(owner[b])
+            else:
+                owner[b] = i
+    groups = collections.defaultdict(list)
+    for i, c in enumerate(comps):
+        if sig[i]:
+            groups[find(i)].append(i)
+    if len(groups) < 2:
+        return {}
+    total = sum(len(c.faces) for c in comps)
+    lo = np.min([c.lo for c in comps], 0)
+    hi = np.max([c.hi for c in comps], 0)
+    diag = float(np.linalg.norm(hi - lo))
+    x0 = float(np.median([(arm.matrix_world @ b.head_local).x for b in arm.data.bones]))
+    info = {}
+    for g, idx in groups.items():
+        info[g] = dict(idx=list(idx), bones=set().union(*[sig[i] for i in idx]), faces=sum(len(comps[i].faces) for i in idx))
+    main = max(info, key=lambda g: (len(info[g]['bones']), info[g]['faces']))      # the body: most bones
+    # a candidate is a group together with every group that hangs below its bones (crossbow:
+    # stock on one bone, the limbs on child bones, and no piece that is weighted to both)
+    below = {}
+    for g, d in info.items():
+        bl = set()
+        for b in d['bones']:
+            bone = arm.data.bones.get(b)
+            if bone is not None:
+                bl.update(x.name for x in bone.children_recursive)
+        below[g] = bl
+    cands = {}
+    for g, d in info.items():
+        if g == main:
+            continue
+        mem = [g] + [h for h in info if h != g and info[h]['bones'] & below[g]]
+        if main in mem:
+            continue            # the body hangs below it: it is part of the body
+        idx = [i for h in mem for i in info[h]['idx']]
+        cands[g] = dict(groups=set(mem), idx=idx, bones=set().union(*[info[h]['bones'] for h in mem]),
+                        faces=sum(len(comps[i].faces) for i in idx), area=sum(comps[i].area for i in idx),
+                        lo=np.min([comps[i].lo for i in idx], 0), hi=np.max([comps[i].hi for i in idx], 0))
+    found = []
+    taken = set()
+    for g, d in sorted(cands.items(), key=lambda kv: -kv[1]['faces']):
+        if d['faces'] < max(min_faces, min_share * total) or d['groups'] & taken:
+            continue
+        why = lambda t: log('  group %s (%d faces) stays with the character: %s' % (sorted(d['bones'])[:4], d['faces'], t))
+        # one side of the mirror plane, no twin on the other side
+        ctr, size = (d['lo'] + d['hi']) / 2, d['hi'] - d['lo']
+        if abs(ctr[0] - x0) < 0.03 * diag or (d['lo'][0] < x0 < d['hi'][0] and abs(ctr[0] - x0) < 0.25 * size[0]):
+            why('lies on the mirror plane')
+            continue
+        twin = False
+        # (the body group itself can be the twin: on a mech built from rigid pieces the "body"
+        # is just the piece with the most bones, e.g. the other arm)
+        mi = info[main]['idx']
+        body = dict(groups={main}, lo=np.min([comps[i].lo for i in mi], 0), hi=np.max([comps[i].hi for i in mi], 0),
+                    area=sum(comps[i].area for i in mi))
+        for h, o in list(cands.items()) + [(main, body)]:
+            if h == g or o['groups'] & d['groups']:
+                continue
+            c2, s2 = (o['lo'] + o['hi']) / 2, o['hi'] - o['lo']
+            m = np.array([2 * x0 - c2[0], c2[1], c2[2]])
+            if np.abs(m - ctr).max() < 0.05 * diag and np.abs(s2 - size).max() < pair_tol * max(size.max(), 1e-12) and \
+                    abs(o['area'] - d['area']) < pair_tol * d['area']:
+                twin = True
+        if twin:
+            why('has a mirror twin')
+            continue
+        # away from everything else
+        mine = set(d['idx'])
+        others = [c for i, c in enumerate(comps) if i not in mine]
+        dist = away * diag
+        far = 0.0
+        for i in d['idx']:
+            c = comps[i]
+            cand = [o for o in others if not (np.any(c.lo > o.hi + dist) or np.any(o.lo > c.hi + dist))]
+            for q, ar in c.pts:
+                if not any(o.bvh.find_nearest(q, dist)[0] is not None for o in cand):
+                    far += ar
+        if far < away_share * d['area']:
+            why('only %.0f%% of it is away from the body' % (100 * far / max(d['area'], 1e-30)))
+            continue
+        taken |= d['groups']
+        found.append((float(ctr[0]), sorted(d['bones'])))
+    found.sort()
+    parts = {'part%d' % (k + 1): bs for k, (_x, bs) in enumerate(found)}
+    for k, v in parts.items():
+        log('  auto part %s: bones %s' % (k, v))
+    return parts
+
+
+def analyse(obj, part_bones='AUTO', relief_height=0.006, relief_cover=0.85, tiny_faces=30, bundle_min=4, shell_min_relief=8, relief_max_faces=400,
+            shell_relief_area=0.3, shell_max_area=0.15, labels=None, log=print):
     """Connected components of the (welded) mesh, their part and their kind.
     part_bones: {part: [bone names]}; a component weighted only to these bones
-    belongs to that part, the rest to 'character'.
+    belongs to that part, the rest to 'character'.  'AUTO': detect_parts();
+    labels: names for the detected parts, in their order (default part1, part2 ..).
     relief_height: fraction of the part's bbox diagonal."""
     me = obj.data
     mw = obj.matrix_world
@@ -185,6 +411,7 @@ def analyse(obj, part_bones=None, relief_height=0.006, relief_cover=0.85, tiny_f
                     if w > 1e-4:
                         bw[gname[gi]] += w
         c.bones = set(bw)
+        c.bw = bw
         c.top = bw.most_common(1)[0][0] if bw else None
         co = np.array([v.co[:] for v in vs])
         c.lo, c.hi = co.min(0), co.max(0)
@@ -197,12 +424,20 @@ def analyse(obj, part_bones=None, relief_height=0.006, relief_cover=0.85, tiny_f
         c.bvh = BVHTree.FromBMesh(sub)
         sub.free()
         c.part = 'character'
-        for p, bs in (part_bones or {}).items():
-            if c.bones and c.bones <= set(bs):
-                c.part = p
         c.kind, c.host, c.near = 'keep', None, 0.0
         comps.append(c)
     bm.free()
+    if part_bones == 'AUTO':
+        part_bones = detect_parts(comps, obj, log=log)
+        if labels:
+            part_bones = {(labels[k] if k < len(labels) else p): bs for k, (p, bs) in enumerate(part_bones.items())}
+    for c in comps:
+        for p, bs in (part_bones or {}).items():
+            if c.bones and c.bones <= set(bs):
+                c.part = p
+    main = [c for c in comps if c.part == 'character'] or comps
+    set_unit(float(np.linalg.norm(np.max([c.hi for c in main], 0) - np.min([c.lo for c in main], 0))))
+    log('  unit %.4f (main part diagonal %.4f)' % (UNIT, UNIT * REF_DIAG))
 
     alpha = [material_is_alpha(m) for m in me.materials]
     parts = sorted({c.part for c in comps})
@@ -260,9 +495,20 @@ def analyse(obj, part_bones=None, relief_height=0.006, relief_cover=0.85, tiny_f
                 kept.append(c)
         # a piece that carries many relief pieces (hair mass under its strands) is not reduced
         # by itself: host + relief are replaced by ONE envelope shell (see envelope_shell)
+        # Only when the pieces DOMINATE their host (their area >= shell_relief_area of the host's:
+        # 0.40 for 范海辛's hair) and the host is a local thing (<= shell_max_area of the part).
+        # A body or an armour that carries 10-40 buckles and studs (0.01-0.23 on the validation
+        # set) is not a hair mass: enveloped, a soldier's whole torso became a voxel blob
+        # (Hausdorff 5.6%)
         cnt = collections.Counter(id(c.host) for c in cs if c.kind == 'relief')
+        rarea = collections.Counter()
         for c in cs:
-            if c.kind == 'keep' and cnt.get(id(c), 0) >= shell_min_relief:
+            if c.kind == 'relief':
+                rarea[id(c.host)] += c.area
+        part_area = sum(c.area for c in cs)
+        for c in cs:
+            if c.kind == 'keep' and cnt.get(id(c), 0) >= shell_min_relief and \
+                    rarea[id(c)] >= shell_relief_area * c.area and c.area <= shell_max_area * part_area:
                 c.kind = 'shell'
         # ... and takes the loose pieces of the same kind with it (single strands, long locks):
         # same material, small, and either rigged to the same bones or lying against the group.
@@ -534,11 +780,11 @@ def envelope_shell(src, faces, name, target, bvh_all, T, mat_index=0, close=1.3,
             c = mw @ f.calc_center_median()
             seen = False
             for q in [c] + [c.lerp(mw @ v.co, 0.6) for v in f.verts]:
-                o_ = q + n * 2e-3
+                o_ = q + n * 2e-3 * UNIT
                 for dv in dirs:
                     if dv.dot(n) < 0.15:
                         continue
-                    if bvh_all.ray_cast(o_, dv, 10.0)[0] is None and own.ray_cast(o_, dv, 10.0)[0] is None:
+                    if bvh_all.ray_cast(o_, dv, 10.0 * UNIT)[0] is None and own.ray_cast(o_, dv, 10.0 * UNIT)[0] is None:
                         seen = True
                         break
                 if seen:
@@ -682,7 +928,7 @@ def sheetify(obj, bvh_all, T, min_fraction=0.4, min_visible=0.03, log=print):
     cen = [f.calc_center_median() for f in bm.faces]
     for f in bm.faces:
         n = f.normal
-        h = own.ray_cast(cen[f.index] - n * 1e-5, -n, T)
+        h = own.ray_cast(cen[f.index] - n * 1e-5 * UNIT, -n, T)
         if h[0] is not None and h[1].dot(n) < -0.3 and h[2] != f.index:
             opp[f.index] = h[2]
             dist[f.index] = h[3]
@@ -698,13 +944,13 @@ def sheetify(obj, bvh_all, T, min_fraction=0.4, min_visible=0.03, log=print):
         if opp[f.index] < 0:
             continue
         n = f.normal
-        c = cen[f.index] + n * 1e-3
+        c = cen[f.index] + n * 1e-3 * UNIT
         k = tot = 0
         for d in dirs:
             if d.dot(n) < 0.15:
                 continue
             tot += 1
-            if bvh_all.ray_cast(c, d, 10.0)[0] is None:
+            if bvh_all.ray_cast(c, d, 10.0 * UNIT)[0] is None:
                 k += 1
         expo[f.index] = k / max(tot, 1)
     # smooth patches of thin faces
@@ -855,7 +1101,7 @@ def rethicken(obj, sheet, min_thick=0.003, log=print):
         # at least the cloth thickness, and enough for the size of the faces around: a warped
         # big quad and its copy must not cut through each other
         el = float(np.mean([e.calc_length() for e in v.link_edges])) if v.link_edges else 0.0
-        t = max(min_thick / sc, float(np.median(vt[v])) / sc, 0.05 * el)
+        t = max(min_thick * UNIT / sc, float(np.median(vt[v])) / sc, 0.05 * el)
         w = bm.verts.new(v.co - n * t)
         if dl is not None:
             w[dl] = v[dl]
@@ -909,6 +1155,7 @@ def rethicken(obj, sheet, min_thick=0.003, log=print):
 
 # ------------------------------------------------------------- build low
 def _mirror_partner(c, cs, tol=0.02):
+    tol = tol * UNIT
     for d in cs:
         if d is c or len(d.faces) != len(c.faces):
             continue
@@ -973,8 +1220,8 @@ def build_low(src, comps, part, target, log=print, card_ratio=0.45, density_gamm
         fs = list(c.faces) + [f for x in cs if x.kind == 'relief' and x.host is c for f in x.faces]
         nb = max(1, len(c.bones))
         nf = len(fs) // 2
-        units.append(dict(obj=None, sheet=None, faces=nf, inner=0, area=c.area, bones=nb, shell=(fs, c.mat),
-                          w=(c.area ** density_gamma) * (nf ** (1 - density_gamma)) * (1.0 + (nb - 1) / math.sqrt(max(c.area, 1e-9))) ** bone_power))
+        units.append(dict(obj=None, sheet=None, faces=nf, inner=0, area=c.area, bones=nb, shell=(fs, c.mat), comp=c,
+                          w=(c.area ** density_gamma) * (nf ** (1 - density_gamma)) * (1.0 + (nb - 1) * UNIT / math.sqrt(max(c.area, 1e-12))) ** bone_power))
     for c in sorted(keep, key=lambda c: -c.area):
         if id(c) in done:
             continue
@@ -993,7 +1240,7 @@ def build_low(src, comps, part, target, log=print, card_ratio=0.45, density_gamm
         ninner = sum(1 for a, _ in inner_flags(o, sh) if a) if sh else 0
         nb = max(1, len(set().union(*[x.bones for x in g])))
         units.append(dict(obj=o, sheet=sh, faces=nf, inner=ninner, area=area, bones=nb,
-                          w=(area ** density_gamma) * ((nf + ninner) ** (1 - density_gamma)) * (1.0 + (nb - 1) / math.sqrt(max(area, 1e-9))) ** bone_power))
+                          w=(area ** density_gamma) * ((nf + ninner) ** (1 - density_gamma)) * (1.0 + (nb - 1) * UNIT / math.sqrt(max(area, 1e-12))) ** bone_power))
     # distribute the budget (units cannot get more than they have)
     budget = max(16, target - used)
     free = list(units)
@@ -1025,9 +1272,24 @@ def build_low(src, comps, part, target, log=print, card_ratio=0.45, density_gamm
     for k, u in enumerate(units):
         if u.get('shell'):
             fs, mi_ = u['shell']
-            u['res'] = envelope_shell(src, fs, '%s_shell%d' % (part, k), int(round(min(u['target'], shell_max_faces))), bvh_all, T, mat_index=mi_, log=log)
-            u['stuck'], u['sym'] = True, None
-            continue
+            try:
+                u['res'] = envelope_shell(src, fs, '%s_shell%d' % (part, k), int(round(min(u['target'], shell_max_faces))), bvh_all, T, mat_index=mi_, log=log)
+                u['stuck'], u['sym'] = True, None
+                continue
+            except RuntimeError as ex:
+                # QuadriFlow / voxel remesh gave up (too small, degenerate): the host is reduced like
+                # any kept piece, its relief pieces are baked onto it
+                log('  shell %d failed (%s): host reduced by loops instead' % (k, str(ex).strip()[-60:]))
+                for x in list(bpy.data.objects):
+                    if x.name.startswith('%s_shell%d' % (part, k)):
+                        bpy.data.objects.remove(x)
+                c = u['comp']
+                c.kind = 'keep'
+                o = _dup(src, '%s_u%d' % (part, k))
+                _keep_faces(o, set(c.faces))
+                join_quads(o.data)
+                u.update(obj=o, sheet=None, faces=len(o.data.polygons), inner=0, shell=None)
+                u['target'] = min(u['target'], u['faces'])
         o = u['obj']
         tgt = int(round(u['target'] * u['faces'] / (u['faces'] + u['inner'])))
         ex = dict(extra)
@@ -1121,22 +1383,23 @@ def lift_to_relief(low, bvh_relief, height, quantile=0.7, log=print):
     inv = mw.inverted()
     n3 = mw.to_3x3().inverted().transposed()
     me = low.data
+    eps = 1e-5 * UNIT
     samples = collections.defaultdict(list)
     for p in me.polygons:
         n = (n3 @ p.normal).normalized()
         cs = [mw @ me.vertices[v].co for v in p.vertices]
         c = mw @ p.center
         for q in [c] + [c.lerp(x, 0.6) for x in cs] + [c.lerp(x, 0.95) for x in cs]:
-            o = q + n * 1e-5
+            o = q + n * eps
             gone = 0.0
             top = 0.0
             for _ in range(8):
                 h = bvh_relief.ray_cast(o, n, height - gone)
                 if h[0] is None:
                     break
-                gone += h[3] + 1e-5
+                gone += h[3] + eps
                 top = gone
-                o = h[0] + n * 1e-5
+                o = h[0] + n * eps
             for v in p.vertices:
                 samples[v].append(top)
     lift = np.zeros(len(me.vertices))
@@ -1153,13 +1416,13 @@ def lift_to_relief(low, bvh_relief, height, quantile=0.7, log=print):
     moved = 0
     for v in me.vertices:
         d = sm[v.index]
-        if d < 0.001:
+        if d < 0.001 * UNIT:
             continue
         n = (n3 @ v.normal).normalized()
         v.co = inv @ (mw @ v.co + n * d)
         moved += 1
     me.update()
-    log('  lift to relief: %d vertices, max %.1f mm' % (moved, 1000 * float(sm.max()) if len(sm) else 0))
+    log('  lift to relief: %d vertices, max %.1f mm (at reference size)' % (moved, 1000 * float(sm.max()) / UNIT if len(sm) else 0))
     return moved
 
 
@@ -1288,7 +1551,7 @@ class HighSurf:
         seeds = set()
         for q in pts:
             best = None
-            for co, nn, i, d in self.bvh.find_nearest_range(q, max(0.004, 0.1 * radius)):
+            for co, nn, i, d in self.bvh.find_nearest_range(q, max(0.004 * UNIT, 0.1 * radius)):
                 if self.nrm[i].dot(n) > 0.2 and (best is None or d < best[1]):
                     best = (i, d)
             if best is None:
@@ -1321,6 +1584,7 @@ def _surface_height(low, high):
     n3 = mw.to_3x3().inverted().transposed()
     me = low.data
     need = np.zeros(len(me.vertices))
+    eps = 1e-5 * UNIT
     me.calc_loop_triangles()
     for t in me.loop_triangles:
         n = (n3 @ t.normal).normalized()
@@ -1330,22 +1594,22 @@ def _surface_height(low, high):
         own = high.own(cs, n, c, 1.2 * longest)
         if not own:
             continue
-        reach = max(0.01, 0.35 * longest)
+        reach = max(0.01 * UNIT, 0.35 * longest)
         pts = [c] + [c.lerp(q, 0.5) for q in cs] + [c.lerp(q, 0.92) for q in cs] + \
               [c.lerp(cs[i].lerp(cs[(i + 1) % 3], 0.5), 0.9) for i in range(3)]
         top = 0.0
         for q in pts:
-            o = q + n * 1e-5
+            o = q + n * eps
             gone = 0.0
             for _ in range(6):
                 h = high.bvh.ray_cast(o, n, reach - gone)
                 if h[0] is None:
                     break
-                gone += h[3] + 1e-5
+                gone += h[3] + eps
                 if h[2] in own and h[1].dot(n) > 0.2:
                     top = max(top, gone)
                     break
-                o = h[0] + n * 1e-5
+                o = h[0] + n * eps
         for v in t.vertices:
             if top > need[v]:
                 need[v] = top
@@ -1359,6 +1623,7 @@ def make_cage(low, high, bvh_relief, e_base, e_relief, e_min=0.0004, margin=0.00
     - but not further than half way to the underside of another layer above
       the surface (trousers under the coat, coat under the cape): otherwise
       the wrong layer is baked."""
+    e_min, margin, pair_tol, eps = e_min * UNIT, margin * UNIT, pair_tol * UNIT, 1e-5 * UNIT
     cage = _dup(low, low.name + '_cage')
     mw = low.matrix_world
     inv = mw.inverted()
@@ -1390,7 +1655,7 @@ def make_cage(low, high, bvh_relief, e_base, e_relief, e_min=0.0004, margin=0.00
         if bvh_relief is not None and bvh_relief.find_nearest(p, e_relief)[0] is not None:
             E = e_relief
             stats['relief'] += 1
-        q = p + n * 1e-5
+        q = p + n * eps
         gone = 0.0
         e = E
         for _ in range(8):
@@ -1402,8 +1667,8 @@ def make_cage(low, high, bvh_relief, e_base, e_relief, e_min=0.0004, margin=0.00
                 e = max(e_min, 0.5 * gone)
                 stats['blocked'] += 1
                 break
-            q = h[0] + n * 1e-5
-            gone += 1e-5
+            q = h[0] + n * eps
+            gone += eps
         if need[v.index] + margin > e:
             e = need[v.index] + margin
             stats['raised'] += 1
@@ -1591,6 +1856,7 @@ def bake_maps(low, highs, cage, out_prefix, size=2048, ao=True, max_ray=0.08, ma
         missed, m0 = _fill_unbaked(img, key=key, mask=mask, regions=regions, shade=[1.0] + [gap_shade] * (len(groups) - 1))
         if key == 'BC':
             mask = m0
+            out['baked_mask'] = m0          # texels a ray reached (core.skelretopo: alpha of the cloth sheets)
         img.filepath_raw = out_prefix + '_' + key + '.PNG'
         img.file_format = 'PNG'
         img.save()
@@ -1630,7 +1896,7 @@ def transfer_skin(low, high, limit=4):
     mod.vert_mapping = 'POLYINTERP_NEAREST'
     mod.layers_vgroup_select_src = 'ALL'
     mod.layers_vgroup_select_dst = 'NAME'
-    with bpy.context.temp_override(object=low, active_object=low, selected_objects=[low]):
+    with api.rest_pose(), bpy.context.temp_override(object=low, active_object=low, selected_objects=[low]):
         bpy.ops.object.modifier_apply(modifier=mod.name)
     finish_skin(low, high, limit)
 

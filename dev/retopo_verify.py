@@ -13,7 +13,7 @@ if len(sys.argv) > 2:
     io_util.import_file(sys.argv[2])
     arm = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
     src_bones = {b.name: (arm.matrix_world @ b.head_local).to_tuple(4) for b in arm.data.bones}
-for path in sorted(glob.glob(os.path.join(outdir, '*_retopo.FBX'))):
+for path in sorted(glob.glob(os.path.join(outdir, '*_retopo.FBX')) + glob.glob(os.path.join(outdir, '*_skel.FBX'))):      # core.retopo / core.skelretopo
     io_util.reset_scene()
     objs = io_util.import_file(path)
     o = objs[0]
@@ -51,9 +51,13 @@ for path in sorted(glob.glob(os.path.join(outdir, '*_retopo.FBX'))):
     rep['materials'] = tex
     # pose test: rotate a bone, the mesh must follow
     if arm:
+        arm.data.pose_position = 'POSE'          # import_file leaves every armature in its rest position
+        bpy.context.view_layer.update()
         dg = bpy.context.evaluated_depsgraph_get()
         before = np.array([v.co[:] for v in o.evaluated_get(dg).data.vertices])
-        pb = arm.pose.bones.get('Bip001-Spine1') or arm.pose.bones[0]
+        used_b = [arm.pose.bones[n] for n in sorted(used & names)]
+        pb = arm.pose.bones.get('Bip001-Spine1') if 'Bip001-Spine1' in used else None
+        pb = pb or (used_b[0] if used_b else arm.pose.bones[0])          # a bone this mesh is weighted to
         pb.rotation_mode = 'XYZ'
         pb.rotation_euler = (0.4, 0.2, 0.3)
         bpy.context.view_layer.update()
@@ -61,4 +65,48 @@ for path in sorted(glob.glob(os.path.join(outdir, '*_retopo.FBX'))):
         after = np.array([v.co[:] for v in o.evaluated_get(dg).data.vertices])
         rep['pose_test_bone'] = pb.name
         rep['pose_test_moved_vertex_pct'] = round(100 * float((np.linalg.norm(after - before, axis=1) > 1e-4).mean()), 1)
-    print('VERIFY', json.dumps(rep, ensure_ascii=False))
+    # mesh hygiene of the exported file (round 5): nothing degenerate / loose / non manifold, every closed
+    # component with its normals outward (positive signed volume), no component wound inconsistently
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    bm.transform(o.matrix_world)
+    diag = float(np.linalg.norm(np.ptp(np.array([v.co[:] for v in bm.verts]), axis=0))) if bm.verts else 1.0
+    seen, inside_out, closed_n, comps_n = set(), 0, 0, 0
+    for f0 in bm.faces:
+        if f0 in seen:
+            continue
+        comps_n += 1
+        st, fs = [f0], []
+        seen.add(f0)
+        while st:
+            g = st.pop()
+            fs.append(g)
+            for e in g.edges:
+                for h in e.link_faces:
+                    if h not in seen:
+                        seen.add(h)
+                        st.append(h)
+        if all(len(e.link_faces) == 2 for g in fs for e in g.edges):
+            closed_n += 1
+            vol = 0.0
+            for g in fs:
+                vv = [l.vert.co for l in g.loops]
+                for k in range(1, len(vv) - 1):
+                    vol += vv[0].dot(vv[k].cross(vv[k + 1]))
+            inside_out += vol < 0
+    rep['hygiene'] = {'components': comps_n, 'closed_components': closed_n, 'inside_out_components': int(inside_out),
+                      'degenerate_faces': sum(1 for f in bm.faces if f.calc_area() < 1e-10 * diag * diag),
+                      'zero_length_edges': sum(1 for e in bm.edges if e.calc_length() < 1e-7 * diag),
+                      'loose_verts': sum(1 for v in bm.verts if not v.link_faces), 'loose_edges': sum(1 for e in bm.edges if not e.link_faces),
+                      'nonmanifold_edges': sum(1 for e in bm.edges if len(e.link_faces) > 2),
+                      'inconsistent_winding_edges': sum(1 for e in bm.edges if len(e.link_faces) == 2 and not e.is_contiguous),
+                      'ngons': sum(1 for f in bm.faces if len(f.verts) > 4)}
+    bm.free()
+    hy = rep['hygiene']
+    ok = (rep['meshes'] == 1 and rep['uv_layers'] >= 1 and (arm is None or (rep['armature_modifier'] and rep['skinned_vertex_pct'] == 100.0 and rep['max_influences'] <= 4
+          and not rep['weighted_groups_without_bone'] and abs(rep['weight_sum_min'] - 1) < 1e-3 and abs(rep['weight_sum_max'] - 1) < 1e-3))
+          and all('MISSING' not in t for im in tex.values() for t in im.values())
+          and not any(hy[k] for k in ('inside_out_components', 'degenerate_faces', 'zero_length_edges', 'loose_verts', 'loose_edges', 'nonmanifold_edges', 'inconsistent_winding_edges', 'ngons')))
+    rep['pass'] = bool(ok)
+    print('VERIFY', 'PASS' if ok else 'FAIL', json.dumps(rep, ensure_ascii=False))

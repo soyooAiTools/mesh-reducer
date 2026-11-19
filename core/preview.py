@@ -9,7 +9,7 @@ VIEWS = {
     'front': Vector((0, -1, 0)), 'back': Vector((0, 1, 0)),
     'left': Vector((1, 0, 0)), 'right': Vector((-1, 0, 0)),
     'front34': Vector((0.7, -1, 0.35)), 'back34': Vector((-0.7, 1, 0.35)),
-    'top': Vector((0, -0.001, 1)),
+    'top': Vector((0, -0.001, 1)), 'bottom': Vector((0, -0.001, -1)),
 }
 
 
@@ -116,7 +116,7 @@ def save_png(arr, path):
 
 def render_views(objs, out_png, views=('front', 'back', 'left'), res=700,
                  texture=None, wire=True, textured=True, zoom_box=None, ref=None,
-                 bg=(0.32, 0.33, 0.36), engine='WORKBENCH'):
+                 bg=(0.32, 0.33, 0.36), engine='WORKBENCH', cull=False):
     """objs: list of objects. Produces a montage: one row per view, one column
     per object.  zoom_box=(center Vector, half_size) for close-ups, else framed
     on `ref` (default objs[0]).  Returns out_png."""
@@ -137,7 +137,7 @@ def render_views(objs, out_png, views=('front', 'back', 'left'), res=700,
         sh.color_type = 'TEXTURE' if textured else 'MATERIAL'
         sh.show_cavity = False
         sh.show_shadows = False
-        sh.show_backface_culling = False
+        sh.show_backface_culling = bool(cull)      # cull=True: flipped faces show as holes
         scene.display.render_aa = '8'
     scene.render.film_transparent = False
     scene.view_settings.view_transform = 'Standard'
